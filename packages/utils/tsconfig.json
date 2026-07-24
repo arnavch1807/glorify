@@ -1,0 +1,4 @@
+{
+  "extends": "@chotify/config/tsconfig.base.json",
+  "include": ["src"]
+}
