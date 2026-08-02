@@ -5,6 +5,7 @@ import { TrackCard } from './TrackCard.js';
 import { usePlayerStore } from '../../store/playerStore.js';
 import { X, Play, Disc, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { LoadingScreen } from '../LoadingScreen.js';
 
 interface DetailOverlayProps {
   id: string | null;
@@ -39,7 +40,7 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
             setData({
               title: res.album.title,
               subtitle: res.album.artistName,
-              description: `Album • ${res.album.releaseYear} • ${res.album.genre.toUpperCase()}`,
+              description: `Album • ${res.album.releaseYear} • ${res.album.genre.charAt(0).toUpperCase() + res.album.genre.slice(1)}`,
               coverUrl: res.album.coverUrl,
               tracks: res.tracks,
             });
@@ -63,7 +64,7 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
             const tracks = allTracks.filter((t) => playlist.songs.includes(t.id));
             setData({
               title: playlist.name,
-              subtitle: 'PLAYLIST',
+              subtitle: 'Playlist',
               description: playlist.description,
               coverUrl: playlist.coverImage,
               tracks: tracks,
@@ -110,30 +111,30 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
             exit: { x: '100%' },
             transition: { type: 'spring', damping: 26, stiffness: 220 },
             className:
-              'absolute top-0 bottom-0 right-0 w-full max-w-2xl bg-chotify-bg-surface border-l border-chotify-border-primary flex flex-col',
+              'absolute top-0 bottom-0 right-0 w-full max-w-2xl bg-glorify-bg-surface border-l border-glorify-border-primary flex flex-col',
           },
           // Header Bar
           React.createElement(
             'div',
             {
               className:
-                'px-ch-6 py-ch-4 border-b border-chotify-border-primary flex items-center justify-between',
+                'px-ch-6 py-ch-4 border-b border-glorify-border-primary flex items-center justify-between',
             },
             React.createElement(
               'button',
               {
                 onClick: onClose,
                 className:
-                  'flex items-center gap-ch-2 text-xs font-mono text-chotify-text-secondary hover:text-chotify-text-primary cursor-pointer outline-none focus-ring',
+                  'flex items-center gap-ch-2 text-xs font-mono text-glorify-text-secondary hover:text-glorify-text-primary cursor-pointer outline-none focus-ring',
               },
               React.createElement(ArrowLeft, { className: 'w-ch-4 h-ch-4' }),
-              'GO BACK'
+              'Go back'
             ),
             React.createElement(
               'button',
               {
                 onClick: onClose,
-                className: 'p-ch-1 rounded-full hover:bg-chotify-bg-secondary cursor-pointer outline-none focus-ring text-chotify-text-secondary hover:text-chotify-text-primary',
+                className: 'p-ch-1 rounded-full hover:bg-glorify-bg-secondary cursor-pointer outline-none focus-ring text-glorify-text-secondary hover:text-glorify-text-primary',
                 'aria-label': 'Close detail view',
               },
               React.createElement(X, { className: 'w-ch-5 h-ch-5' })
@@ -144,11 +145,7 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
             'div',
             { className: 'flex-1 overflow-y-auto p-ch-6 flex flex-col gap-ch-8' },
             loading
-              ? React.createElement(
-                  'div',
-                  { className: 'flex items-center justify-center py-12 text-sm font-mono text-chotify-text-muted' },
-                  'LOADING_RESOURCES...'
-                )
+              ? React.createElement(LoadingScreen)
               : data &&
                 React.createElement(
                   React.Fragment,
@@ -156,13 +153,13 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
                   // Layout banner metadata
                   React.createElement(
                     'div',
-                    { className: 'flex flex-col sm:flex-row items-center sm:items-start gap-ch-6 text-center sm:text-left border-b border-chotify-border-secondary pb-ch-6' },
+                    { className: 'flex flex-col sm:flex-row items-center sm:items-start gap-ch-6 text-center sm:text-left border-b border-glorify-border-secondary pb-ch-6' },
                     // Media
                     React.createElement(
                       'div',
                       {
-                        className: `w-32 h-32 bg-chotify-bg-secondary border border-chotify-border-primary flex items-center justify-center font-mono overflow-hidden ${
-                          type === 'artist' ? 'rounded-full' : 'rounded-ch-md'
+                        className: `w-32 h-32 bg-glorify-bg-secondary border border-glorify-border-primary flex items-center justify-center font-mono overflow-hidden ${
+                          type === 'artist' ? 'rounded-full' : 'rounded-[20px]'
                         }`,
                       },
                       data.coverUrl
@@ -171,7 +168,7 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
                             alt: data.title,
                             className: 'w-full h-full object-cover',
                           })
-                        : React.createElement(Disc, { className: 'w-ch-10 h-ch-10 text-chotify-text-muted animate-spin-slow' })
+                        : React.createElement(Disc, { className: 'w-ch-10 h-ch-10 text-glorify-text-muted animate-spin-slow' })
                     ),
                     // Titles
                     React.createElement(
@@ -179,18 +176,18 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
                       { className: 'flex-1 flex flex-col gap-ch-2 mt-ch-2' },
                       React.createElement(
                         'h1',
-                        { className: 'text-xl font-bold tracking-tight text-chotify-text-primary' },
+                        { className: 'text-xl font-bold tracking-tight text-glorify-text-primary' },
                         data.title
                       ),
                       React.createElement(
                         'p',
-                        { className: 'text-xs font-mono uppercase tracking-widest text-chotify-aura-gold' },
+                        { className: 'text-xs font-mono uppercase tracking-widest text-glorify-aura-gold' },
                         data.subtitle
                       ),
                       data.description &&
                         React.createElement(
                           'p',
-                          { className: 'text-xs text-chotify-text-secondary leading-relaxed max-w-md' },
+                          { className: 'text-xs text-glorify-text-secondary leading-relaxed max-w-md' },
                           data.description
                         )
                     )
@@ -205,7 +202,7 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
                       { className: 'flex items-center justify-between' },
                       React.createElement(
                         'span',
-                        { className: 'text-[10px] font-mono text-chotify-text-muted tracking-widest' },
+                        { className: 'text-[10px] font-mono text-glorify-text-muted tracking-widest' },
                         'COMPOSITION INDEX'
                       ),
                       data.tracks.length > 0 &&
@@ -214,7 +211,7 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
                           {
                             onClick: handlePlayAll,
                             className:
-                              'flex items-center gap-ch-2 px-ch-4 py-ch-2 rounded-ch-sm bg-chotify-aura-gold text-chotify-carbon-950 text-xs font-bold shadow-sm hover:shadow-ch-glow cursor-pointer active:scale-95 transition-all outline-none',
+                              'flex items-center gap-ch-2 px-ch-4 py-ch-2 rounded-ch-sm bg-glorify-aura-gold text-glorify-carbon-950 text-xs font-bold shadow-sm hover:shadow-ch-glow cursor-pointer active:scale-95 transition-all outline-none',
                           },
                           React.createElement(Play, { className: 'w-ch-3.5 h-ch-3.5 fill-currentColor pl-0.5' }),
                           'PLAY ALL'
@@ -227,7 +224,7 @@ export function DetailOverlay({ id, type, onClose, onNavigate }: DetailOverlayPr
                       data.tracks.length === 0
                         ? React.createElement(
                             'div',
-                            { className: 'text-center py-8 text-xs font-mono text-chotify-text-muted' },
+                            { className: 'text-center py-8 text-xs font-mono text-glorify-text-muted' },
                             'NO_COMPOSITIONS_FOUND'
                           )
                         : data.tracks.map((track, idx) =>

@@ -22,7 +22,7 @@ export function errorHandler(
   logger.error({ err, requestId }, `Unhandled Error: ${err.message}`);
   
   res.status(500).json({
-    type: 'https://chotify.com/errors/internal',
+    type: 'https://glorify.com/errors/internal',
     title: 'Internal Server Error',
     status: 500,
     detail: 'An unexpected database or application error occurred.',

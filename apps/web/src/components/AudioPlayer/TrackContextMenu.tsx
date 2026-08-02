@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Track } from '@chotify/types';
 import { usePlayerStore } from '../../store/playerStore.js';
+import { useToastStore } from '../../store/toastStore.js';
 import { StaticMusicRepository } from '../../repositories/musicRepository.js';
-import { Play, ListPlus, Heart, Info, Disc, Users, Plus } from 'lucide-react';
+import { Play, ListPlus, Heart, Info, Disc, Users, Plus, Download, Share2 } from 'lucide-react';
 
 interface TrackContextMenuProps {
   track: Track;
@@ -29,6 +30,7 @@ export function TrackContextMenu({
     playLast,
     addTrackToPlaylist,
     toggleFavoriteTrack,
+    startDownloadTrack
   } = usePlayerStore();
 
   const [showPlaylistSubmenu, setShowPlaylistSubmenu] = useState(false);
@@ -36,6 +38,20 @@ export function TrackContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const isFavorited = favoritedTrackIds.includes(track.id);
+
+  const handleDownload = () => {
+    startDownloadTrack(track);
+    onClose();
+  };
+
+  const handleShare = () => {
+    const shareText = `Check out "${track.title}" by ${track.artist} on Glorify! http://localhost:5173/album/${track.id}`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(shareText);
+    }
+    useToastStore.getState().addToast('Share link copied to clipboard!', 'info');
+    onClose();
+  };
 
   // Close context menu on click outside
   useEffect(() => {
@@ -105,16 +121,16 @@ export function TrackContextMenu({
         ref: menuRef,
         style: { top: y, left: x },
         className:
-          'fixed z-50 min-w-44 bg-chotify-bg-surface border border-chotify-border-primary rounded-ch-md shadow-lg py-ch-1 flex flex-col text-xs font-sans select-none',
+          'fixed z-50 min-w-44 bg-glorify-bg-surface border border-glorify-border-primary rounded-ch-md shadow-lg py-ch-1 flex flex-col text-xs font-sans select-none',
       },
       React.createElement(
         'button',
         {
           onClick: handlePlay,
           className:
-            'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
+            'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
         },
-        React.createElement(Play, { className: 'w-ch-3.5 h-ch-3.5 text-chotify-text-muted' }),
+        React.createElement(Play, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
         'Play Now'
       ),
       React.createElement(
@@ -122,9 +138,9 @@ export function TrackContextMenu({
         {
           onClick: handlePlayNext,
           className:
-            'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
+            'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
         },
-        React.createElement(ListPlus, { className: 'w-ch-3.5 h-ch-3.5 text-chotify-text-muted' }),
+        React.createElement(ListPlus, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
         'Play Next'
       ),
       React.createElement(
@@ -132,9 +148,9 @@ export function TrackContextMenu({
         {
           onClick: handlePlayLast,
           className:
-            'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
+            'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
         },
-        React.createElement(Plus, { className: 'w-ch-3.5 h-ch-3.5 text-chotify-text-muted' }),
+        React.createElement(Plus, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
         'Add to Queue'
       ),
       // Add to playlist submenu trigger
@@ -149,15 +165,15 @@ export function TrackContextMenu({
           'button',
           {
             className:
-              'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary flex items-center justify-between gap-ch-2.5 cursor-pointer outline-none',
+              'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center justify-between gap-ch-2.5 cursor-pointer outline-none',
           },
           React.createElement(
             'div',
             { className: 'flex items-center gap-ch-2.5' },
-            React.createElement(ListPlus, { className: 'w-ch-3.5 h-ch-3.5 text-chotify-text-muted' }),
+            React.createElement(ListPlus, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
             React.createElement('span', null, 'Add to Playlist')
           ),
-          React.createElement('span', { className: 'text-[9px] font-mono text-chotify-text-muted' }, '▶')
+          React.createElement('span', { className: 'text-[9px] font-mono text-glorify-text-muted' }, '▶')
         ),
         // Submenu list of playlists
         showPlaylistSubmenu &&
@@ -165,12 +181,12 @@ export function TrackContextMenu({
             'div',
             {
               className:
-                'absolute top-0 left-full ml-0.5 min-w-40 bg-chotify-bg-surface border border-chotify-border-primary rounded-ch-md shadow-lg py-ch-1 flex flex-col',
+                'absolute top-0 left-full ml-0.5 min-w-40 bg-glorify-bg-surface border border-glorify-border-primary rounded-ch-md shadow-lg py-ch-1 flex flex-col',
             },
             playlists.length === 0
               ? React.createElement(
                   'div',
-                  { className: 'px-ch-4 py-ch-2 text-[10px] text-chotify-text-muted font-mono' },
+                  { className: 'px-ch-4 py-ch-2 text-[10px] text-glorify-text-muted font-mono' },
                   'NO_PLAYLISTS_FOUND'
                 )
               : playlists.map((p) =>
@@ -180,7 +196,7 @@ export function TrackContextMenu({
                       key: p.id,
                       onClick: () => handleAddPlaylist(p.id),
                       className:
-                        'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary truncate cursor-pointer outline-none',
+                        'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary truncate cursor-pointer outline-none',
                     },
                     p.name
                   )
@@ -193,9 +209,9 @@ export function TrackContextMenu({
           {
             onClick: handleGoToAlbum,
             className:
-              'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
+              'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
           },
-          React.createElement(Disc, { className: 'w-ch-3.5 h-ch-3.5 text-chotify-text-muted' }),
+          React.createElement(Disc, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
           'Go to Album'
         ),
       React.createElement(
@@ -203,9 +219,9 @@ export function TrackContextMenu({
         {
           onClick: handleGoToArtist,
           className:
-            'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
+            'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
         },
-        React.createElement(Users, { className: 'w-ch-3.5 h-ch-3.5 text-chotify-text-muted' }),
+        React.createElement(Users, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
         'Go to Artist'
       ),
       React.createElement(
@@ -213,21 +229,41 @@ export function TrackContextMenu({
         {
           onClick: handleFavorite,
           className:
-            'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
+            'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
         },
         React.createElement(Heart, {
-          className: `w-ch-3.5 h-ch-3.5 ${isFavorited ? 'text-chotify-error fill-currentColor' : 'text-chotify-text-muted'}`,
+          className: `w-ch-3.5 h-ch-3.5 ${isFavorited ? 'text-glorify-error fill-currentColor' : 'text-glorify-text-muted'}`,
         }),
         isFavorited ? 'Remove Favorite' : 'Favorite'
       ),
       React.createElement(
         'button',
         {
+          onClick: handleDownload,
+          className:
+            'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
+        },
+        React.createElement(Download, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
+        'Download Track'
+      ),
+      React.createElement(
+        'button',
+        {
+          onClick: handleShare,
+          className:
+            'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none',
+        },
+        React.createElement(Share2, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
+        'Share Link'
+      ),
+      React.createElement(
+        'button',
+        {
           onClick: () => setShowDetailsModal(true),
           className:
-            'w-full text-left px-ch-4 py-ch-2 hover:bg-chotify-bg-secondary text-chotify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none border-t border-chotify-border-primary/50 mt-1',
+            'w-full text-left px-ch-4 py-ch-2 hover:bg-glorify-bg-secondary text-glorify-text-primary flex items-center gap-ch-2.5 cursor-pointer outline-none border-t border-glorify-border-primary/50 mt-1',
         },
-        React.createElement(Info, { className: 'w-ch-3.5 h-ch-3.5 text-chotify-text-muted' }),
+        React.createElement(Info, { className: 'w-ch-3.5 h-ch-3.5 text-glorify-text-muted' }),
         'Track Info'
       )
     ),
@@ -238,17 +274,17 @@ export function TrackContextMenu({
         { className: 'fixed inset-0 z-50 flex items-center justify-center p-ch-4 bg-[#0b0b0a]/70 backdrop-blur-xs' },
         React.createElement(
           'div',
-          { className: 'bg-chotify-bg-surface border border-chotify-border-primary rounded-ch-lg p-ch-6 max-w-sm w-full flex flex-col gap-ch-4 text-left font-sans' },
-          React.createElement('div', { className: 'text-xs font-mono text-chotify-aura-gold tracking-widest' }, '[ STEM_DETAILS_TELEMETRY ]'),
+          { className: 'bg-glorify-bg-surface border border-glorify-border-primary rounded-ch-lg p-ch-6 max-w-sm w-full flex flex-col gap-ch-4 text-left font-sans' },
+          React.createElement('div', { className: 'text-xs font-mono text-glorify-aura-gold tracking-widest' }, '[ STEM_DETAILS_TELEMETRY ]'),
           React.createElement(
             'div',
             { className: 'flex flex-col gap-ch-1' },
-            React.createElement('div', { className: 'text-xs text-chotify-text-muted' }, 'Track Title'),
-            React.createElement('div', { className: 'text-sm font-semibold text-chotify-text-primary' }, track.title),
-            React.createElement('div', { className: 'text-xs text-chotify-text-muted mt-ch-3' }, 'AI Prompts Metadata'),
+            React.createElement('div', { className: 'text-xs text-glorify-text-muted' }, 'Track Title'),
+            React.createElement('div', { className: 'text-sm font-semibold text-glorify-text-primary' }, track.title),
+            React.createElement('div', { className: 'text-xs text-glorify-text-muted mt-ch-3' }, 'AI Prompts Metadata'),
             React.createElement(
               'div',
-              { className: 'p-ch-3 bg-chotify-bg-secondary border border-chotify-border-secondary text-xs text-chotify-text-secondary leading-relaxed font-mono rounded-ch-sm' },
+              { className: 'p-ch-3 bg-glorify-bg-secondary border border-glorify-border-secondary text-xs text-glorify-text-secondary leading-relaxed font-mono rounded-ch-sm' },
               track.prompt || 'No algorithmic generation prompt loaded for this standard catalog file.'
             )
           ),
@@ -259,7 +295,7 @@ export function TrackContextMenu({
                 setShowDetailsModal(false);
                 onClose();
               },
-              className: 'mt-ch-4 py-ch-2 bg-chotify-text-primary text-chotify-bg-primary rounded-ch-sm text-xs font-semibold hover:opacity-90 outline-none',
+              className: 'mt-ch-4 py-ch-2 bg-glorify-text-primary text-glorify-bg-primary rounded-ch-sm text-xs font-semibold hover:opacity-90 outline-none',
             },
             'Dismiss Log'
           )

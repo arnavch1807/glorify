@@ -13,14 +13,14 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'carbon',
+  defaultTheme = 'sand',
 }: {
   children: React.ReactNode;
   defaultTheme?: Theme;
 }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('chotify-theme') as Theme;
+      const saved = localStorage.getItem('glorify-theme') as Theme;
       return saved || defaultTheme;
     }
     return defaultTheme;
@@ -30,7 +30,7 @@ export function ThemeProvider({
     const root = window.document.documentElement;
     root.classList.remove('sand', 'carbon');
     root.classList.add(theme);
-    localStorage.setItem('chotify-theme', theme);
+    localStorage.setItem('glorify-theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {
@@ -70,14 +70,14 @@ export function Button({
   disabled,
   ...props
 }: ButtonProps) {
-  let baseClass = 'px-ch-4 py-ch-3 text-base font-medium rounded-ch-md transition-all active:scale-[0.98] outline-none focus:outline-none focus-visible:ring-1.5 focus-visible:ring-chotify-aura-gold focus-visible:ring-offset-2 disabled:opacity-40 disabled:pointer-events-none cursor-pointer ';
+  let baseClass = 'px-ch-4 py-ch-3 text-base font-medium rounded-ch-md transition-all active:scale-[0.98] outline-none focus:outline-none focus-visible:ring-1.5 focus-visible:ring-glorify-aura-gold focus-visible:ring-offset-2 disabled:opacity-40 disabled:pointer-events-none cursor-pointer ';
 
   if (variant === 'primary') {
-    baseClass += 'bg-chotify-carbon-950 text-chotify-sand-50 hover:bg-chotify-carbon-900 dark:bg-chotify-sand-50 dark:text-chotify-carbon-950 dark:hover:bg-chotify-sand-100 border-none';
+    baseClass += 'bg-glorify-carbon-950 text-glorify-platinum-50 hover:bg-glorify-carbon-900 dark:bg-glorify-platinum-50 dark:text-glorify-carbon-950 dark:hover:bg-glorify-platinum-400 border-none';
   } else if (variant === 'secondary') {
-    baseClass += 'bg-transparent border border-chotify-sand-300 dark:border-chotify-carbon-800 text-chotify-carbon-950 dark:text-chotify-sand-50 hover:bg-chotify-sand-100 dark:hover:bg-chotify-carbon-900';
+    baseClass += 'bg-transparent border border-glorify-border-primary text-glorify-text-primary hover:bg-glorify-bg-secondary';
   } else if (variant === 'ai') {
-    baseClass += 'bg-chotify-aura-gold text-chotify-carbon-950 hover:shadow-ch-glow border-none';
+    baseClass += 'bg-glorify-accent text-glorify-carbon-950 hover:shadow-ch-glow border-none';
   }
 
   return React.createElement(
@@ -104,11 +104,11 @@ export function Input({
   id,
   ...props
 }: InputProps) {
-  const inputId = id || 'input-' + Math.random().toString(36).substr(2, 9);
-  const baseInputClass = `w-full px-ch-4 py-ch-3 text-sm rounded-ch-md bg-chotify-sand-100 dark:bg-chotify-carbon-900 border outline-none transition-all ${
+  const inputId = id || 'input-' + Math.random().toString(36).substring(2, 9);
+  const baseInputClass = `w-full px-ch-4 py-3 text-sm rounded-[16px] bg-glorify-bg-secondary/60 border border-glorify-border-primary/10 text-glorify-text-primary placeholder:text-glorify-text-muted/60 outline-none focus:border-glorify-accent/40 focus-ring transition-all ${
     error
-      ? 'border-chotify-error focus:border-chotify-error'
-      : 'border-chotify-sand-300 dark:border-chotify-carbon-800 focus:border-chotify-aura-gold'
+      ? 'border-glorify-error focus:border-glorify-error'
+      : 'border-glorify-border-primary/10 focus:border-glorify-accent/40'
   } ${className}`.trim();
 
   const inputEl = React.createElement('input', {
@@ -125,7 +125,7 @@ export function Input({
         'label',
         {
           htmlFor: inputId,
-          className: 'text-xs font-mono text-chotify-ink-600 dark:text-chotify-platinum-400',
+          className: 'text-xs font-mono text-glorify-ink-600 dark:text-glorify-platinum-600',
         },
         label
       ),

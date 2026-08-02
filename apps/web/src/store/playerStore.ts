@@ -1,13 +1,19 @@
 import { create } from 'zustand';
 import { Howl } from 'howler';
 import { Track, Playlist } from '@chotify/types';
+import { useToastStore } from './toastStore.js';
 
 export type LoadingState = 'idle' | 'loading' | 'loaded' | 'buffering' | 'error';
 export type RepeatMode = 'none' | 'one' | 'all';
 export type AudioQualityType = 'standard' | 'high' | 'lossless';
 
+export interface ListeningHistoryItem {
+  trackId: string;
+  playedAt: string;
+}
+
 interface PlayerState {
-  // Original playback state
+  // Playback state
   currentTrack: Track | null;
   queue: Track[];
   previousQueue: Track[];
@@ -15,14 +21,17 @@ interface PlayerState {
   loadingState: LoadingState;
   volume: number;
   isMuted: boolean;
+  lastUnmutedVolume: number;
   repeatMode: RepeatMode;
   isShuffle: boolean;
   playbackRate: number;
   currentTime: number;
   duration: number;
   isPlayerExpanded: boolean;
+  isFullscreen: boolean;
+  activePlayerTab: 'playback' | 'lyrics' | 'queue' | 'settings';
 
-  // New Playback configs
+  // Playback configs
   crossfadeDuration: number;
   isGapless: boolean;
   isNormalized: boolean;
@@ -31,11 +40,26 @@ interface PlayerState {
   audioQuality: AudioQualityType;
   outputDevice: string;
 
-  // New Local storage lists
+  // Local storage lists
   playlists: Playlist[];
   favoritedTrackIds: string[];
+  favoritedAlbumIds: string[];
+  favoritedArtistIds: string[];
+  downloadedTrackIds: string[];
+  
+  // Listening History
+  listeningHistory: ListeningHistoryItem[];
+  totalPlays: Record<string, number>;
 
-  // Original Actions
+  // Download simulation state
+  downloadStates: Record<string, 'downloading' | 'completed' | 'failed'>;
+  downloadProgress: Record<string, number>;
+
+  // Shuffle order state
+  shuffledIndices: number[];
+  shuffledCurrentIndex: number;
+
+  // Actions
   playTrack: (track: Track, queueContext?: Track[]) => void;
   togglePlay: () => void;
   seek: (seconds: number) => void;
@@ -47,26 +71,38 @@ interface PlayerState {
   skipNext: () => void;
   skipPrevious: () => void;
   setPlayerExpanded: (expanded: boolean) => void;
+  setFullscreen: (fullscreen: boolean) => void;
+  toggleFullscreen: () => void;
+  setActivePlayerTab: (tab: 'playback' | 'lyrics' | 'queue' | 'settings') => void;
   setQueue: (queue: Track[]) => void;
   addToQueue: (track: Track) => void;
   removeFromQueue: (trackId: string) => void;
 
-  // New Actions - Queue
+  // Actions - Queue
   reorderQueue: (startIndex: number, endIndex: number) => void;
   playNext: (track: Track) => void;
   playLast: (track: Track) => void;
   clearQueue: () => void;
 
-  // New Actions - Playlists
-  createPlaylist: (name: string, description?: string) => void;
+  // Actions - Playlists
+  createPlaylist: (name: string, description?: string, coverImage?: string) => void;
   deletePlaylist: (playlistId: string) => void;
-  renamePlaylist: (playlistId: string, name: string, description?: string) => void;
+  renamePlaylist: (playlistId: string, name: string, description?: string, coverImage?: string) => void;
   addTrackToPlaylist: (playlistId: string, track: Track) => void;
   removeTrackFromPlaylist: (playlistId: string, trackId: string) => void;
   reorderPlaylistTracks: (playlistId: string, startIndex: number, endIndex: number) => void;
-  toggleFavoriteTrack: (trackId: string) => void;
+  duplicatePlaylist: (playlistId: string) => void;
 
-  // New Actions - Configs
+  // Actions - Favorites
+  toggleFavoriteTrack: (trackId: string) => void;
+  toggleFavoriteAlbum: (albumId: string) => void;
+  toggleFavoriteArtist: (artistId: string) => void;
+
+  // Actions - Downloads
+  startDownloadTrack: (track: Track) => void;
+  removeDownloadedTrack: (trackId: string) => void;
+
+  // Actions - Configs
   setCrossfadeDuration: (val: number) => void;
   setGapless: (val: boolean) => void;
   setNormalized: (val: boolean) => void;
@@ -76,8 +112,130 @@ interface PlayerState {
 }
 
 let activeHowl: Howl | null = null;
+let preloadedHowl: Howl | null = null;
+let preloadedTrackId: string | null = null;
 let progressIntervalId: any = null;
 let sleepTimerIntervalId: any = null;
+
+// Local storage helper loaders
+const loadSavedPlaylists = (): Playlist[] => {
+  try {
+    const saved = localStorage.getItem('glorify-playlists') || localStorage.getItem('chotify-playlists');
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const loadSavedFavorites = (): string[] => {
+  try {
+    const saved = localStorage.getItem('glorify-favorites') || localStorage.getItem('chotify-favorites');
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const loadSavedFavAlbums = (): string[] => {
+  try {
+    const saved = localStorage.getItem('glorify-favorites-albums');
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const loadSavedFavArtists = (): string[] => {
+  try {
+    const saved = localStorage.getItem('glorify-favorites-artists');
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const loadSavedDownloads = (): string[] => {
+  try {
+    const saved = localStorage.getItem('glorify-downloads');
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const loadListeningHistory = (): ListeningHistoryItem[] => {
+  try {
+    const saved = localStorage.getItem('glorify-listening-history');
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const loadTotalPlays = (): Record<string, number> => {
+  try {
+    const saved = localStorage.getItem('glorify-total-plays');
+    return saved ? JSON.parse(saved) : {};
+  } catch (e) {
+    return {};
+  }
+};
+
+const loadSavedVolume = (): number => {
+  try {
+    const saved = localStorage.getItem('glorify-player-volume');
+    return saved ? parseFloat(saved) : 0.8;
+  } catch (e) {
+    return 0.8;
+  }
+};
+
+const loadSavedMuted = (): boolean => {
+  try {
+    return localStorage.getItem('glorify-player-muted') === 'true';
+  } catch (e) {
+    return false;
+  }
+};
+
+const loadSavedLastUnmutedVolume = (): number => {
+  try {
+    const saved = localStorage.getItem('glorify-player-last-unmuted-volume');
+    return saved ? parseFloat(saved) : 0.8;
+  } catch (e) {
+    return 0.8;
+  }
+};
+
+const loadSavedQueue = (): Track[] => {
+  try {
+    const saved = localStorage.getItem('glorify-queue');
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const loadSavedCurrentTrack = (): Track | null => {
+  try {
+    const saved = localStorage.getItem('glorify-current-track');
+    return saved ? JSON.parse(saved) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+
+// Migrate old local storage keys if present
+if (typeof window !== 'undefined') {
+  const oldKeys = ['theme', 'playlists', 'favorites', 'search-history'];
+  oldKeys.forEach((key) => {
+    const oldVal = localStorage.getItem(`chotify-${key}`);
+    if (oldVal && !localStorage.getItem(`glorify-${key}`)) {
+      localStorage.setItem(`glorify-${key}`, oldVal);
+    }
+  });
+}
 
 const startProgressInterval = (store: any) => {
   if (progressIntervalId) clearInterval(progressIntervalId);
@@ -86,9 +244,33 @@ const startProgressInterval = (store: any) => {
       const time = activeHowl.seek() as number;
       if (typeof time === 'number') {
         store.setState({ currentTime: time });
+        
+        // Gapless playback preloading
+        const state = store.getState();
+        if (state.isGapless && state.duration > 0 && state.duration - time < 5 && !preloadedHowl) {
+          const { queue, currentTrack, isShuffle, shuffledIndices, shuffledCurrentIndex } = state;
+          const currentIndex = queue.findIndex((t: Track) => t.id === currentTrack?.id);
+          let nextIndex = currentIndex + 1;
+          if (isShuffle && shuffledIndices.length > 0) {
+            const nextShuffleIdx = shuffledCurrentIndex + 1;
+            if (nextShuffleIdx < shuffledIndices.length) {
+              nextIndex = shuffledIndices[nextShuffleIdx];
+            }
+          }
+          if (nextIndex < queue.length) {
+            const nextTrack = queue[nextIndex];
+            preloadedTrackId = nextTrack.id;
+            preloadedHowl = new Howl({
+              src: [nextTrack.audioUrl],
+              html5: true,
+              volume: 0,
+              preload: true
+            });
+          }
+        }
       }
     }
-  }, 250);
+  }, 60);
 };
 
 const stopProgressInterval = () => {
@@ -98,44 +280,28 @@ const stopProgressInterval = () => {
   }
 };
 
-// Local storage helper loaders
-const loadSavedPlaylists = (): Playlist[] => {
-  try {
-    const saved = localStorage.getItem('chotify-playlists');
-    return saved ? JSON.parse(saved) : [];
-  } catch (e) {
-    return [];
-  }
-};
-
-const loadSavedFavorites = (): string[] => {
-  try {
-    const saved = localStorage.getItem('chotify-favorites');
-    return saved ? JSON.parse(saved) : [];
-  } catch (e) {
-    return [];
-  }
-};
-
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   // Base states
-  currentTrack: null,
-  queue: [],
+  currentTrack: loadSavedCurrentTrack(),
+  queue: loadSavedQueue(),
   previousQueue: [],
   isPlaying: false,
   loadingState: 'idle',
-  volume: 0.8,
-  isMuted: false,
+  volume: loadSavedVolume(),
+  isMuted: loadSavedMuted(),
+  lastUnmutedVolume: loadSavedLastUnmutedVolume(),
   repeatMode: 'none',
   isShuffle: false,
   playbackRate: 1.0,
   currentTime: 0,
   duration: 0,
   isPlayerExpanded: false,
+  isFullscreen: false,
+  activePlayerTab: 'playback',
 
   // Extended configs
-  crossfadeDuration: 0,
-  isGapless: false,
+  crossfadeDuration: 3,
+  isGapless: true,
   isNormalized: true,
   sleepTimerMinutes: null,
   sleepTimerRemaining: null,
@@ -145,12 +311,34 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   // Lists
   playlists: loadSavedPlaylists(),
   favoritedTrackIds: loadSavedFavorites(),
+  favoritedAlbumIds: loadSavedFavAlbums(),
+  favoritedArtistIds: loadSavedFavArtists(),
+  downloadedTrackIds: loadSavedDownloads(),
+  listeningHistory: loadListeningHistory(),
+  totalPlays: loadTotalPlays(),
+
+  // Download simulation state
+  downloadStates: {},
+  downloadProgress: {},
+
+  // Shuffle order state
+  shuffledIndices: [],
+  shuffledCurrentIndex: -1,
 
   playTrack: (track: Track, queueContext?: Track[]) => {
-    const { volume, isMuted, playbackRate } = get();
+    const { volume, isMuted, playbackRate, crossfadeDuration } = get();
 
+    // Crossfade: Fade out the current Howl
     if (activeHowl) {
-      activeHowl.unload();
+      if (crossfadeDuration > 0 && activeHowl.playing()) {
+        const oldHowl = activeHowl;
+        oldHowl.fade(oldHowl.volume(), 0, crossfadeDuration * 1000);
+        setTimeout(() => {
+          try { oldHowl.unload(); } catch(e){}
+        }, crossfadeDuration * 1000);
+      } else {
+        activeHowl.unload();
+      }
       activeHowl = null;
     }
     stopProgressInterval();
@@ -162,62 +350,113 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       duration: 0,
       isPlaying: false,
     });
+    localStorage.setItem('glorify-current-track', JSON.stringify(track));
 
+    // Handle queue update
     if (queueContext) {
       set({ queue: queueContext });
+      localStorage.setItem('glorify-queue', JSON.stringify(queueContext));
+      // Reset shuffle indices if new queue context provided
+      if (get().isShuffle) {
+        const indices = Array.from({ length: queueContext.length }, (_, i) => i);
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        const currentIndex = queueContext.findIndex((t: Track) => t.id === track.id);
+        const order = [currentIndex, ...indices.filter((idx) => idx !== currentIndex)];
+        set({ shuffledIndices: order, shuffledCurrentIndex: 0 });
+      }
     } else {
       const currentQueue = get().queue;
       if (!currentQueue.some((t) => t.id === track.id)) {
-        set({ queue: [...currentQueue, track] });
+        const newQueue = [...currentQueue, track];
+        set({ queue: newQueue });
+        localStorage.setItem('glorify-queue', JSON.stringify(newQueue));
+        if (get().isShuffle) {
+          set({
+            shuffledIndices: [...get().shuffledIndices, newQueue.length - 1]
+          });
+        }
       }
     }
 
+    // Track listening history
+    const nextHistoryItem: ListeningHistoryItem = {
+      trackId: track.id,
+      playedAt: new Date().toISOString(),
+    };
+    const nextHistory = [nextHistoryItem, ...get().listeningHistory].slice(0, 30);
+    const nextTotalPlays = { ...get().totalPlays, [track.id]: (get().totalPlays[track.id] || 0) + 1 };
+    set({ listeningHistory: nextHistory, totalPlays: nextTotalPlays });
+    localStorage.setItem('glorify-listening-history', JSON.stringify(nextHistory));
+    localStorage.setItem('glorify-total-plays', JSON.stringify(nextTotalPlays));
+
     try {
-      activeHowl = new Howl({
-        src: [track.audioUrl],
-        html5: true,
-        volume: isMuted ? 0 : volume,
-        rate: playbackRate,
-        onload: () => {
-          if (activeHowl) {
-            set({
-              duration: activeHowl.duration(),
-              loadingState: 'loaded',
-            });
-          }
-        },
-        onplay: () => {
-          set({ isPlaying: true, loadingState: 'loaded' });
-          startProgressInterval({ setState: set });
-        },
-        onpause: () => {
-          set({ isPlaying: false });
-          stopProgressInterval();
-        },
-        onstop: () => {
-          set({ isPlaying: false, currentTime: 0 });
-          stopProgressInterval();
-        },
-        onend: () => {
-          stopProgressInterval();
-          const { repeatMode, skipNext } = get();
-          if (repeatMode === 'one') {
-            activeHowl?.play();
-          } else {
-            skipNext();
-          }
-        },
-        onloaderror: (_, error) => {
-          console.error('Howler load error:', error);
-          set({ loadingState: 'error', isPlaying: false });
-        },
-        onplayerror: (_, error) => {
-          console.error('Howler play error:', error);
-          set({ loadingState: 'error', isPlaying: false });
-        },
+      // Re-use preloaded Howl if matches
+      if (preloadedHowl && preloadedTrackId === track.id) {
+        activeHowl = preloadedHowl;
+        preloadedHowl = null;
+        preloadedTrackId = null;
+      } else {
+        if (preloadedHowl) {
+          preloadedHowl.unload();
+          preloadedHowl = null;
+          preloadedTrackId = null;
+        }
+        activeHowl = new Howl({
+          src: [track.audioUrl],
+          html5: true,
+          volume: 0, // Fade in
+          rate: playbackRate,
+        });
+      }
+
+      // Bind Howler callbacks
+      activeHowl.on('load', () => {
+        if (activeHowl) {
+          set({
+            duration: activeHowl.duration(),
+            loadingState: 'loaded',
+          });
+        }
+      });
+      activeHowl.on('play', () => {
+        set({ isPlaying: true, loadingState: 'loaded' });
+        startProgressInterval({ setState: set, getState: get });
+      });
+      activeHowl.on('pause', () => {
+        set({ isPlaying: false });
+        stopProgressInterval();
+      });
+      activeHowl.on('stop', () => {
+        set({ isPlaying: false, currentTime: 0 });
+        stopProgressInterval();
+      });
+      activeHowl.on('end', () => {
+        stopProgressInterval();
+        const { repeatMode, skipNext } = get();
+        if (repeatMode === 'one') {
+          activeHowl?.play();
+        } else {
+          skipNext();
+        }
+      });
+      activeHowl.on('loaderror', (_, error) => {
+        console.error('Howler load error:', error);
+        set({ loadingState: 'error', isPlaying: false });
+      });
+      activeHowl.on('playerror', (_, error) => {
+        console.error('Howler play error:', error);
+        set({ loadingState: 'error', isPlaying: false });
       });
 
       activeHowl.play();
+      if (crossfadeDuration > 0) {
+        activeHowl.fade(0, isMuted ? 0 : volume, crossfadeDuration * 1000);
+      } else {
+        activeHowl.volume(isMuted ? 0 : volume);
+      }
     } catch (err) {
       console.error('Failed to initialize audio playback:', err);
       set({ loadingState: 'error' });
@@ -249,16 +488,34 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setVolume: (volume: number) => {
     const clampedVolume = Math.max(0, Math.min(1, volume));
     set({ volume: clampedVolume });
+    localStorage.setItem('glorify-player-volume', String(clampedVolume));
+    if (clampedVolume > 0 && get().isMuted) {
+      set({ isMuted: false });
+      localStorage.setItem('glorify-player-muted', 'false');
+    }
     if (activeHowl) {
       activeHowl.volume(get().isMuted ? 0 : clampedVolume);
     }
   },
 
   toggleMute: () => {
-    const nextMute = !get().isMuted;
-    set({ isMuted: nextMute });
-    if (activeHowl) {
-      activeHowl.volume(nextMute ? 0 : get().volume);
+    const { isMuted, volume, lastUnmutedVolume } = get();
+    const nextMute = !isMuted;
+    if (nextMute) {
+      const newLastVolume = volume > 0 ? volume : lastUnmutedVolume;
+      set({ isMuted: nextMute, lastUnmutedVolume: newLastVolume });
+      localStorage.setItem('glorify-player-muted', 'true');
+      localStorage.setItem('glorify-player-last-unmuted-volume', String(newLastVolume));
+      if (activeHowl) {
+        activeHowl.volume(0);
+      }
+    } else {
+      set({ isMuted: nextMute, volume: lastUnmutedVolume });
+      localStorage.setItem('glorify-player-muted', 'false');
+      localStorage.setItem('glorify-player-volume', String(lastUnmutedVolume));
+      if (activeHowl) {
+        activeHowl.volume(lastUnmutedVolume);
+      }
     }
   },
 
@@ -275,19 +532,50 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   toggleShuffle: () => {
-    set((state) => ({ isShuffle: !state.isShuffle }));
+    const nextShuffle = !get().isShuffle;
+    set({ isShuffle: nextShuffle });
+    if (nextShuffle) {
+      // Build shuffled order indices
+      const { queue, currentTrack } = get();
+      const indices = Array.from({ length: queue.length }, (_, i) => i);
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      const currentIndex = queue.findIndex(t => t.id === currentTrack?.id);
+      if (currentIndex !== -1) {
+        const order = [currentIndex, ...indices.filter(idx => idx !== currentIndex)];
+        set({ shuffledIndices: order, shuffledCurrentIndex: 0 });
+      } else {
+        set({ shuffledIndices: indices, shuffledCurrentIndex: 0 });
+      }
+    } else {
+      set({ shuffledIndices: [], shuffledCurrentIndex: -1 });
+    }
   },
 
   skipNext: () => {
-    const { queue, currentTrack, isShuffle, repeatMode, playTrack } = get();
+    const { queue, currentTrack, isShuffle, shuffledIndices, shuffledCurrentIndex, repeatMode, playTrack } = get();
     if (queue.length === 0) return;
 
     let nextIndex = 0;
-    const currentIndex = queue.findIndex((t) => t.id === currentTrack?.id);
-
-    if (isShuffle) {
-      nextIndex = Math.floor(Math.random() * queue.length);
+    if (isShuffle && shuffledIndices.length > 0) {
+      const nextShuffleIdx = shuffledCurrentIndex + 1;
+      if (nextShuffleIdx >= shuffledIndices.length) {
+        if (repeatMode === 'all') {
+          nextIndex = shuffledIndices[0];
+          set({ shuffledCurrentIndex: 0 });
+        } else {
+          if (activeHowl) activeHowl.stop();
+          set({ isPlaying: false, currentTime: 0 });
+          return;
+        }
+      } else {
+        nextIndex = shuffledIndices[nextShuffleIdx];
+        set({ shuffledCurrentIndex: nextShuffleIdx });
+      }
     } else {
+      const currentIndex = queue.findIndex((t) => t.id === currentTrack?.id);
       nextIndex = currentIndex + 1;
       if (nextIndex >= queue.length) {
         if (repeatMode === 'all') {
@@ -341,24 +629,40 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   setPlayerExpanded: (expanded: boolean) => {
-    set({ isPlayerExpanded: expanded });
+    set({ isPlayerExpanded: expanded, isFullscreen: expanded });
+  },
+
+  setFullscreen: (fullscreen: boolean) => {
+    set({ isFullscreen: fullscreen, isPlayerExpanded: fullscreen });
+  },
+
+  toggleFullscreen: () => {
+    const next = !get().isFullscreen;
+    set({ isFullscreen: next, isPlayerExpanded: next });
+  },
+
+  setActivePlayerTab: (tab: 'playback' | 'lyrics' | 'queue' | 'settings') => {
+    set({ activePlayerTab: tab });
   },
 
   setQueue: (newQueue: Track[]) => {
     set({ queue: newQueue });
+    localStorage.setItem('glorify-queue', JSON.stringify(newQueue));
   },
 
   addToQueue: (track: Track) => {
     const currentQueue = get().queue;
     if (!currentQueue.some((t) => t.id === track.id)) {
-      set({ queue: [...currentQueue, track] });
+      const nextQueue = [...currentQueue, track];
+      set({ queue: nextQueue });
+      localStorage.setItem('glorify-queue', JSON.stringify(nextQueue));
     }
   },
 
   removeFromQueue: (trackId: string) => {
-    set((state) => ({
-      queue: state.queue.filter((t) => t.id !== trackId),
-    }));
+    const nextQueue = get().queue.filter((t) => t.id !== trackId);
+    set({ queue: nextQueue });
+    localStorage.setItem('glorify-queue', JSON.stringify(nextQueue));
   },
 
   // Actions - Queue Reordering & Helpers
@@ -367,57 +671,64 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const [removed] = result.splice(startIndex, 1);
     result.splice(endIndex, 0, removed);
     set({ queue: result });
+    localStorage.setItem('glorify-queue', JSON.stringify(result));
   },
 
   playNext: (track: Track) => {
     const { queue, currentTrack } = get();
     const cleanQueue = queue.filter((t) => t.id !== track.id);
-    const currentIndex = cleanQueue.findIndex((t) => t.id === currentTrack?.id);
+    const currentIndex = cleanQueue.findIndex((t: Track) => t.id === currentTrack?.id);
     
     const nextQueue = [...cleanQueue];
     nextQueue.splice(currentIndex + 1, 0, track);
     set({ queue: nextQueue });
+    localStorage.setItem('glorify-queue', JSON.stringify(nextQueue));
   },
 
   playLast: (track: Track) => {
     const { queue } = get();
     const cleanQueue = queue.filter((t) => t.id !== track.id);
-    set({ queue: [...cleanQueue, track] });
+    const nextQueue = [...cleanQueue, track];
+    set({ queue: nextQueue });
+    localStorage.setItem('glorify-queue', JSON.stringify(nextQueue));
   },
 
   clearQueue: () => {
     const { currentTrack } = get();
-    set({ queue: currentTrack ? [currentTrack] : [], previousQueue: [] });
+    const nextQueue = currentTrack ? [currentTrack] : [];
+    set({ queue: nextQueue, previousQueue: [] });
+    localStorage.setItem('glorify-queue', JSON.stringify(nextQueue));
   },
 
   // Actions - Playlist Manager
-  createPlaylist: (name: string, description?: string) => {
+  createPlaylist: (name: string, description?: string, coverImage?: string) => {
     const newPlaylist: Playlist = {
       id: 'playlist_' + Date.now(),
       userId: 'user_dev',
       name,
       description,
+      coverImage: coverImage || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop&q=80',
       songs: [],
       isPublic: true,
       createdAt: new Date().toISOString(),
     };
     const nextPlaylists = [...get().playlists, newPlaylist];
     set({ playlists: nextPlaylists });
-    localStorage.setItem('chotify-playlists', JSON.stringify(nextPlaylists));
+    localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
   },
 
   deletePlaylist: (playlistId: string) => {
     const nextPlaylists = get().playlists.filter((p) => p.id !== playlistId);
     set({ playlists: nextPlaylists });
-    localStorage.setItem('chotify-playlists', JSON.stringify(nextPlaylists));
+    localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
   },
 
-  renamePlaylist: (playlistId: string, name: string, description?: string) => {
+  renamePlaylist: (playlistId: string, name: string, description?: string, coverImage?: string) => {
     const nextPlaylists = get().playlists.map((p) =>
-      p.id === playlistId ? { ...p, name, description } : p
+      p.id === playlistId ? { ...p, name, description, coverImage: coverImage || p.coverImage } : p
     );
     set({ playlists: nextPlaylists });
-    localStorage.setItem('chotify-playlists', JSON.stringify(nextPlaylists));
+    localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
   },
 
   addTrackToPlaylist: (playlistId: string, track: Track) => {
@@ -430,7 +741,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return p;
     });
     set({ playlists: nextPlaylists });
-    localStorage.setItem('chotify-playlists', JSON.stringify(nextPlaylists));
+    localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
   },
 
   removeTrackFromPlaylist: (playlistId: string, trackId: string) => {
@@ -438,7 +749,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       p.id === playlistId ? { ...p, songs: p.songs.filter((sid) => sid !== trackId) } : p
     );
     set({ playlists: nextPlaylists });
-    localStorage.setItem('chotify-playlists', JSON.stringify(nextPlaylists));
+    localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
   },
 
   reorderPlaylistTracks: (playlistId: string, startIndex: number, endIndex: number) => {
@@ -452,9 +763,27 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return p;
     });
     set({ playlists: nextPlaylists });
-    localStorage.setItem('chotify-playlists', JSON.stringify(nextPlaylists));
+    localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
   },
 
+  duplicatePlaylist: (playlistId: string) => {
+    const { playlists } = get();
+    const original = playlists.find(p => p.id === playlistId);
+    if (original) {
+      const copy: Playlist = {
+        ...original,
+        id: 'playlist_' + Date.now(),
+        name: `${original.name} (Copy)`,
+        createdAt: new Date().toISOString()
+      };
+      const nextPlaylists = [...playlists, copy];
+      set({ playlists: nextPlaylists });
+      localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
+      useToastStore.getState().addToast(`Duplicated "${original.name}"`, 'success');
+    }
+  },
+
+  // Actions - Favorites
   toggleFavoriteTrack: (trackId: string) => {
     const favorites = get().favoritedTrackIds;
     const isFav = favorites.includes(trackId);
@@ -463,7 +792,109 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       : [...favorites, trackId];
     
     set({ favoritedTrackIds: nextFavorites });
-    localStorage.setItem('chotify-favorites', JSON.stringify(nextFavorites));
+    localStorage.setItem('glorify-favorites', JSON.stringify(nextFavorites));
+    useToastStore.getState().addToast(
+      isFav ? 'Removed from Liked Songs' : 'Added to Liked Songs',
+      isFav ? 'info' : 'favorite'
+    );
+  },
+
+  toggleFavoriteAlbum: (albumId: string) => {
+    const favAlbums = get().favoritedAlbumIds;
+    const isFav = favAlbums.includes(albumId);
+    const nextFavAlbums = isFav ? favAlbums.filter(id => id !== albumId) : [...favAlbums, albumId];
+    set({ favoritedAlbumIds: nextFavAlbums });
+    localStorage.setItem('glorify-favorites-albums', JSON.stringify(nextFavAlbums));
+    useToastStore.getState().addToast(
+      isFav ? 'Removed Album from Library' : 'Added Album to Library',
+      'success'
+    );
+  },
+
+  toggleFavoriteArtist: (artistId: string) => {
+    const favArtists = get().favoritedArtistIds;
+    const isFav = favArtists.includes(artistId);
+    const nextFavArtists = isFav ? favArtists.filter(id => id !== artistId) : [...favArtists, artistId];
+    set({ favoritedArtistIds: nextFavArtists });
+    localStorage.setItem('glorify-favorites-artists', JSON.stringify(nextFavArtists));
+    useToastStore.getState().addToast(
+      isFav ? 'Unfollowed Artist' : 'Followed Artist',
+      'success'
+    );
+  },
+
+  // Actions - Simulated Downloads
+  startDownloadTrack: (track: Track) => {
+    const { downloadedTrackIds, downloadStates } = get();
+    if (downloadedTrackIds.includes(track.id) || downloadStates[track.id] === 'downloading') return;
+
+    set((state) => ({
+      downloadStates: { ...state.downloadStates, [track.id]: 'downloading' },
+      downloadProgress: { ...state.downloadProgress, [track.id]: 0 },
+    }));
+
+    useToastStore.getState().addToast(`Downloading "${track.title}"`, 'download');
+
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 20;
+      if (progress >= 100) {
+        clearInterval(interval);
+        // 10% chance to fail
+        const isSuccess = Math.random() > 0.1;
+        if (isSuccess) {
+          const nextDownloads = [...get().downloadedTrackIds, track.id];
+          set((state) => {
+            const nextStates = { ...state.downloadStates };
+            nextStates[track.id] = 'completed';
+            const nextProg = { ...state.downloadProgress };
+            nextProg[track.id] = 100;
+            return {
+              downloadedTrackIds: nextDownloads,
+              downloadStates: nextStates,
+              downloadProgress: nextProg,
+            };
+          });
+          localStorage.setItem('glorify-downloads', JSON.stringify(nextDownloads));
+          useToastStore.getState().addToast(`Download Complete: "${track.title}"`, 'download');
+        } else {
+          set((state) => {
+            const nextStates = { ...state.downloadStates };
+            nextStates[track.id] = 'failed';
+            const nextProg = { ...state.downloadProgress };
+            nextProg[track.id] = 0;
+            return {
+              downloadStates: nextStates,
+              downloadProgress: nextProg,
+            };
+          });
+          useToastStore.getState().addToast(`Download Failed: "${track.title}"`, 'error' as any);
+        }
+      } else {
+        set((state) => {
+          const nextProg = { ...state.downloadProgress };
+          nextProg[track.id] = progress;
+          return { downloadProgress: nextProg };
+        });
+      }
+    }, 300);
+  },
+
+  removeDownloadedTrack: (trackId: string) => {
+    const nextDownloads = get().downloadedTrackIds.filter(id => id !== trackId);
+    set((state) => {
+      const nextStates = { ...state.downloadStates };
+      delete nextStates[trackId];
+      const nextProg = { ...state.downloadProgress };
+      delete nextProg[trackId];
+      return {
+        downloadedTrackIds: nextDownloads,
+        downloadStates: nextStates,
+        downloadProgress: nextProg,
+      };
+    });
+    localStorage.setItem('glorify-downloads', JSON.stringify(nextDownloads));
+    useToastStore.getState().addToast('Removed from downloaded tracks', 'info');
   },
 
   // Actions - Configuration toggles
@@ -493,8 +924,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         clearInterval(sleepTimerIntervalId);
         sleepTimerIntervalId = null;
         set({ sleepTimerMinutes: null, sleepTimerRemaining: null });
-        // Pause active audio stream
         if (activeHowl) activeHowl.pause();
+        useToastStore.getState().addToast('Sleep timer expired. Audio playback paused.', 'info');
       } else {
         set({ sleepTimerRemaining: remaining - 1 });
       }

@@ -7,7 +7,7 @@ let server: any = null;
 
 async function bootstrap() {
   try {
-    logger.info('Starting Chotify backend foundation services...');
+    logger.info('Starting Glorify backend foundation services...');
     
     // Connect to external storage databases
     await connectDB();
@@ -15,7 +15,7 @@ async function bootstrap() {
 
     // Start listening on port
     server = app.listen(env.PORT, () => {
-      logger.info(`🚀 Chotify backend listener starting on http://localhost:${env.PORT}`);
+      logger.info(`🚀 Glorify backend listener starting on http://localhost:${env.PORT}`);
     });
   } catch (err) {
     logger.error(`Fatal exception during server boot: ${(err as Error).message}`);

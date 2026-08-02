@@ -108,7 +108,7 @@ export function PlaylistDialog({
             {
               type: 'submit',
               className:
-                'px-ch-4 py-ch-2 rounded-ch-sm text-xs font-bold bg-chotify-aura-gold text-chotify-carbon-950 hover:opacity-90 cursor-pointer outline-none',
+                'px-ch-4 py-ch-2 rounded-ch-sm text-xs font-bold bg-chotify-accent text-chotify-carbon-950 hover:opacity-90 cursor-pointer outline-none',
             },
             playlistId ? 'Save Edits' : 'Create Playlist'
           )

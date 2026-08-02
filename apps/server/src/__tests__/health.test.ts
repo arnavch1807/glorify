@@ -30,7 +30,7 @@ describe('Server Integration - Health & API Checklists', () => {
       .expect('Content-Type', /json/)
       .expect(404);
 
-    expect(res.body).toHaveProperty('type', 'https://chotify.com/errors/not-found');
+    expect(res.body).toHaveProperty('type', 'https://glorify.com/errors/not-found');
     expect(res.body).toHaveProperty('title', 'Not Found');
     expect(res.body).toHaveProperty('status', 404);
     expect(res.body).toHaveProperty('detail');

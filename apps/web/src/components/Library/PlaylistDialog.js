@@ -46,7 +46,7 @@ export function PlaylistDialog({ playlistId, initialName = '', initialDescriptio
         className: 'px-ch-4 py-ch-2 rounded-ch-sm text-xs font-semibold text-chotify-text-secondary hover:text-chotify-text-primary border border-chotify-border-primary cursor-pointer outline-none',
     }, 'Cancel'), React.createElement('button', {
         type: 'submit',
-        className: 'px-ch-4 py-ch-2 rounded-ch-sm text-xs font-bold bg-chotify-aura-gold text-chotify-carbon-950 hover:opacity-90 cursor-pointer outline-none',
+        className: 'px-ch-4 py-ch-2 rounded-ch-sm text-xs font-bold bg-chotify-accent text-chotify-carbon-950 hover:opacity-90 cursor-pointer outline-none',
     }, playlistId ? 'Save Edits' : 'Create Playlist')))));
 }
 //# sourceMappingURL=PlaylistDialog.js.map

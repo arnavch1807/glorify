@@ -12,7 +12,7 @@ export function NotFound() {
     React.createElement(
       'div',
       {
-        className: 'p-ch-4 rounded-full bg-chotify-bg-secondary border border-chotify-border-primary text-chotify-aura-gold',
+        className: 'p-ch-4 rounded-full bg-chotify-bg-secondary border border-chotify-border-primary text-chotify-accent',
       },
       React.createElement(EyeOff, { className: 'w-ch-8 h-ch-8' })
     ),

@@ -25,7 +25,7 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
           exit: { opacity: 0 },
           transition: { duration: 0.4, ease: 'easeInOut' },
           className:
-            'fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0B0B0A] text-[#FAFAF9] font-sans selection:bg-transparent',
+            'fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#090909] text-[#FAFAF9] font-sans selection:bg-transparent',
         },
         React.createElement(
           'div',
@@ -37,7 +37,7 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
               initial: { scale: 0.8, opacity: 0.5 },
               animate: { scale: [0.8, 1.2, 0.8], opacity: [0.5, 1, 0.5] },
               transition: { repeat: Infinity, duration: 1.5, ease: 'easeInOut' },
-              className: 'w-ch-4 h-ch-4 rounded-full bg-[#D4AF37] shadow-ch-glow',
+              className: 'w-ch-4.5 h-ch-4.5 rounded-full bg-[#D4AF37] shadow-ch-glow',
             }
           ),
           React.createElement(
@@ -47,9 +47,9 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
               animate: { opacity: 1, y: 0 },
               transition: { delay: 0.2, duration: 0.5 },
               className:
-                'text-3xl font-bold tracking-tight font-mono uppercase bg-gradient-to-r from-[#FAFAF9] via-[#FAFAF9] to-[#D4AF37] bg-clip-text text-transparent',
+                'text-3xl font-bold tracking-[0.25em] font-sans uppercase bg-gradient-to-r from-[#FAFAF9] via-[#FAFAF9] to-[#D4AF37] bg-clip-text text-transparent',
             },
-            'CHOTIFY'
+            'GLORIFY'
           ),
           React.createElement(
             motion.span,

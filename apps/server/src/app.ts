@@ -47,7 +47,7 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: {
-    type: 'https://chotify.com/errors/rate-limit',
+    type: 'https://glorify.com/errors/rate-limit',
     title: 'Too Many Requests',
     status: 429,
     detail: 'Request threshold exceeded. Please try again later.',

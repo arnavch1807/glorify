@@ -1,28 +1,55 @@
-import { useKeyPress } from '@chotify/hooks';
+import { useEffect } from 'react';
 import { usePlayerStore } from '../../store/playerStore.js';
 export function PlayerKeyboardHandler() {
-    const { togglePlay, seek, currentTime, duration, volume, setVolume, toggleMute, } = usePlayerStore();
-    useKeyPress(' ', () => {
-        togglePlay();
-    });
-    useKeyPress('ArrowLeft', () => {
-        seek(Math.max(0, currentTime - 5));
-    });
-    useKeyPress('ArrowRight', () => {
-        seek(Math.min(duration, currentTime + 5));
-    });
-    useKeyPress('ArrowUp', () => {
-        setVolume(Math.min(1, volume + 0.1));
-    });
-    useKeyPress('ArrowDown', () => {
-        setVolume(Math.max(0, volume - 0.1));
-    });
-    useKeyPress('m', () => {
-        toggleMute();
-    });
-    useKeyPress('M', () => {
-        toggleMute();
-    });
+    const { togglePlay, skipNext, skipPrevious, toggleMute, currentTrack, toggleFavoriteTrack, setFullscreen, isFullscreen } = usePlayerStore();
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Ignore keystrokes inside input and select fields
+            const target = e.target;
+            if (target.tagName === 'INPUT' ||
+                target.tagName === 'SELECT' ||
+                target.tagName === 'TEXTAREA' ||
+                target.isContentEditable) {
+                return;
+            }
+            switch (e.key) {
+                case ' ':
+                    e.preventDefault();
+                    togglePlay();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    skipNext();
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    skipPrevious();
+                    break;
+                case 'm':
+                case 'M':
+                    e.preventDefault();
+                    toggleMute();
+                    break;
+                case 'l':
+                case 'L':
+                    if (currentTrack) {
+                        e.preventDefault();
+                        toggleFavoriteTrack(currentTrack.id);
+                    }
+                    break;
+                case 'Escape':
+                    if (isFullscreen) {
+                        e.preventDefault();
+                        setFullscreen(false);
+                    }
+                    break;
+                default:
+                    break;
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [togglePlay, skipNext, skipPrevious, toggleMute, currentTrack, toggleFavoriteTrack, isFullscreen, setFullscreen]);
     return null;
 }
 //# sourceMappingURL=PlayerKeyboardHandler.js.map

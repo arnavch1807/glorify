@@ -26,30 +26,30 @@ export class APIError extends Error {
 
 export class ValidationError extends APIError {
   constructor(detail: string, errors?: any) {
-    super(400, 'Bad Request', detail, 'https://chotify.com/errors/validation', errors);
+    super(400, 'Bad Request', detail, 'https://glorify.com/errors/validation', errors);
   }
 }
 
 export class NotFoundError extends APIError {
   constructor(detail: string) {
-    super(404, 'Not Found', detail, 'https://chotify.com/errors/not-found');
+    super(404, 'Not Found', detail, 'https://glorify.com/errors/not-found');
   }
 }
 
 export class UnauthorizedError extends APIError {
   constructor(detail: string) {
-    super(401, 'Unauthorized', detail, 'https://chotify.com/errors/unauthorized');
+    super(401, 'Unauthorized', detail, 'https://glorify.com/errors/unauthorized');
   }
 }
 
 export class ConflictError extends APIError {
   constructor(detail: string) {
-    super(409, 'Conflict', detail, 'https://chotify.com/errors/conflict');
+    super(409, 'Conflict', detail, 'https://glorify.com/errors/conflict');
   }
 }
 
 export class InternalServerError extends APIError {
   constructor(detail = 'An unexpected error occurred on our systems.') {
-    super(500, 'Internal Server Error', detail, 'https://chotify.com/errors/internal');
+    super(500, 'Internal Server Error', detail, 'https://glorify.com/errors/internal');
   }
 }

@@ -1,13 +1,13 @@
-# 🎵 Chotify — AI-Native Music Platform
+# 🎵 Glorify — AI-Native Music Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-1.0.0.0-blue.svg)](#)
 [![pnpm](https://img.shields.io/badge/package--manager-pnpm--v9-orange.svg)](https://pnpm.io/)
 [![Turbo](https://img.shields.io/badge/built--with-Turborepo-red.svg)](https://turbo.build/)
 
-Chotify is an AI-native music platform that seamlessly combines high-fidelity music streaming, AI-driven music generation, smart playlist curation, AI remixing, and personalized recommendations into a single, unified experience. 
+Glorify is an AI-native music platform that seamlessly combines high-fidelity music streaming, AI-driven music generation, smart playlist curation, AI remixing, and personalized recommendations into a single, unified experience. 
 
-Unlike traditional streaming services that lock you into specific algorithms, Chotify empowers users by letting them connect their own AI provider API keys (OpenAI, Suno, Udio, Gemini, etc.). This ensures unlimited creative possibilities and full user ownership over generated content, while keeping the application completely future-proof.
+Unlike traditional streaming services that lock you into specific algorithms, Glorify empowers users by letting them connect their own AI provider API keys (OpenAI, Suno, Udio, Gemini, etc.). This ensures unlimited creative possibilities and full user ownership over generated content, while keeping the application completely future-proof.
 
 ---
 
@@ -25,7 +25,7 @@ Unlike traditional streaming services that lock you into specific algorithms, Ch
 This project is structured as a monorepo managed with **pnpm workspaces** and **Turborepo** for optimal build caching and developer workspace performance:
 
 ```
-chotify-monorepo/
+glorify-monorepo/
 ├── apps/
 │   ├── web/          # React + Vite + TailwindCSS v4 + Framer Motion frontend
 │   └── server/       # Node.js + Express + MongoDB backend api server
@@ -85,7 +85,7 @@ VITE_API_URL=http://localhost:5000/api
 #### Backend (`apps/server/.env`)
 ```env
 PORT=5000
-MONGODB_URI=mongodb://localhost:27017/chotify
+MONGODB_URI=mongodb://localhost:27017/glorify
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=your_super_secret_jwt_key
 CLOUDINARY_CLOUD_NAME=your_cloudinary_name
