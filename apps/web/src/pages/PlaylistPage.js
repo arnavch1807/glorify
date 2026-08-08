@@ -7,6 +7,7 @@ import { PlaylistDialog } from '../components/Library/PlaylistDialog.js';
 import { Play, Shuffle, ArrowLeft, Clock, Trash2, Copy, Edit, Music, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PlaylistPageSkeleton } from '../components/SkeletonLoaders.js';
+import { useLocalLibraryStore } from '../store/localLibraryStore.js';
 export function PlaylistPage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -35,11 +36,17 @@ export function PlaylistPage() {
             .catch(console.error)
             .finally(() => setLoading(false));
     }, []);
+    const { localTracks } = useLocalLibraryStore();
+    const combinedTracks = useMemo(() => {
+        return [...localTracks, ...allTracks];
+    }, [localTracks, allTracks]);
     const tracks = useMemo(() => {
         if (!playlist)
             return [];
-        return allTracks.filter((t) => playlist.songs.includes(t.id));
-    }, [playlist, allTracks]);
+        return playlist.songs
+            .map((songId) => combinedTracks.find((t) => t.id === songId))
+            .filter((t) => !!t);
+    }, [playlist, combinedTracks]);
     const totalDuration = useMemo(() => {
         return tracks.reduce((acc, t) => acc + t.duration, 0);
     }, [tracks]);

@@ -1,9 +1,12 @@
 import { create } from 'zustand';
 import { Howl } from 'howler';
 import { useToastStore } from './toastStore.js';
+import { CloudRepository } from '../repositories/cloudRepository.js';
 let activeHowl = null;
 let preloadedHowl = null;
 let preloadedTrackId = null;
+let activeLocalBlobUrl = null;
+let preloadedLocalBlobUrl = null;
 let progressIntervalId = null;
 let sleepTimerIntervalId = null;
 // Local storage helper loaders
@@ -147,12 +150,34 @@ const startProgressInterval = (store) => {
                     if (nextIndex < queue.length) {
                         const nextTrack = queue[nextIndex];
                         preloadedTrackId = nextTrack.id;
-                        preloadedHowl = new Howl({
-                            src: [nextTrack.audioUrl],
-                            html5: true,
-                            volume: 0,
-                            preload: true
-                        });
+                        if (nextTrack.source === 'local') {
+                            import('./localLibraryStore.js').then(async (m) => {
+                                try {
+                                    const file = await m.useLocalLibraryStore.getState().resolveAudioFile(nextTrack);
+                                    if (preloadedLocalBlobUrl) {
+                                        URL.revokeObjectURL(preloadedLocalBlobUrl);
+                                    }
+                                    preloadedLocalBlobUrl = URL.createObjectURL(file);
+                                    preloadedHowl = new Howl({
+                                        src: [preloadedLocalBlobUrl],
+                                        html5: true,
+                                        volume: 0,
+                                        preload: true
+                                    });
+                                }
+                                catch (e) {
+                                    console.error('Failed to preload local track:', e);
+                                }
+                            });
+                        }
+                        else {
+                            preloadedHowl = new Howl({
+                                src: [nextTrack.audioUrl],
+                                html5: true,
+                                volume: 0,
+                                preload: true
+                            });
+                        }
                     }
                 }
             }
@@ -199,13 +224,14 @@ export const usePlayerStore = create((set, get) => ({
     downloadedTrackIds: loadSavedDownloads(),
     listeningHistory: loadListeningHistory(),
     totalPlays: loadTotalPlays(),
+    syncStatus: 'idle',
     // Download simulation state
     downloadStates: {},
     downloadProgress: {},
     // Shuffle order state
     shuffledIndices: [],
     shuffledCurrentIndex: -1,
-    playTrack: (track, queueContext) => {
+    playTrack: async (track, queueContext) => {
         const { volume, isMuted, playbackRate, crossfadeDuration } = get();
         // Crossfade: Fade out the current Howl
         if (activeHowl) {
@@ -269,6 +295,13 @@ export const usePlayerStore = create((set, get) => ({
         };
         const nextHistory = [nextHistoryItem, ...get().listeningHistory].slice(0, 30);
         const nextTotalPlays = { ...get().totalPlays, [track.id]: (get().totalPlays[track.id] || 0) + 1 };
+        // Check if we should log to cloud (prevent duplicate logs within 10s)
+        const lastHistory = get().listeningHistory[0];
+        if (!lastHistory || lastHistory.trackId !== track.id || Date.now() - new Date(lastHistory.playedAt).getTime() > 10000) {
+            CloudRepository.addHistoryEvent(track.id, track.duration, 0).catch(err => {
+                console.error('Failed to log history event to cloud:', err);
+            });
+        }
         set({ listeningHistory: nextHistory, totalPlays: nextTotalPlays });
         localStorage.setItem('glorify-listening-history', JSON.stringify(nextHistory));
         localStorage.setItem('glorify-total-plays', JSON.stringify(nextTotalPlays));
@@ -278,15 +311,42 @@ export const usePlayerStore = create((set, get) => ({
                 activeHowl = preloadedHowl;
                 preloadedHowl = null;
                 preloadedTrackId = null;
+                if (activeLocalBlobUrl) {
+                    URL.revokeObjectURL(activeLocalBlobUrl);
+                }
+                activeLocalBlobUrl = preloadedLocalBlobUrl;
+                preloadedLocalBlobUrl = null;
             }
             else {
                 if (preloadedHowl) {
                     preloadedHowl.unload();
                     preloadedHowl = null;
                     preloadedTrackId = null;
+                    if (preloadedLocalBlobUrl) {
+                        URL.revokeObjectURL(preloadedLocalBlobUrl);
+                        preloadedLocalBlobUrl = null;
+                    }
+                }
+                let sourceUrl = track.audioUrl;
+                if (track.source === 'local') {
+                    try {
+                        const { useLocalLibraryStore } = await import('./localLibraryStore.js');
+                        const file = await useLocalLibraryStore.getState().resolveAudioFile(track);
+                        if (activeLocalBlobUrl) {
+                            URL.revokeObjectURL(activeLocalBlobUrl);
+                        }
+                        activeLocalBlobUrl = URL.createObjectURL(file);
+                        sourceUrl = activeLocalBlobUrl;
+                    }
+                    catch (err) {
+                        console.error('Failed to resolve local audio file:', err);
+                        useToastStore.getState().addToast(err.message || 'Failed to play local track', 'error');
+                        set({ loadingState: 'error' });
+                        return;
+                    }
                 }
                 activeHowl = new Howl({
-                    src: [track.audioUrl],
+                    src: [sourceUrl],
                     html5: true,
                     volume: 0, // Fade in
                     rate: playbackRate,
@@ -326,6 +386,9 @@ export const usePlayerStore = create((set, get) => ({
             activeHowl.on('loaderror', (_, error) => {
                 console.error('Howler load error:', error);
                 set({ loadingState: 'error', isPlaying: false });
+                useToastStore.getState().addToast(track.source === 'local'
+                    ? `Browser cannot play this format (${track.filePath?.split('.').pop()?.toUpperCase()}).`
+                    : 'Failed to load audio track.', 'error');
             });
             activeHowl.on('playerror', (_, error) => {
                 console.error('Howler play error:', error);
@@ -569,9 +632,10 @@ export const usePlayerStore = create((set, get) => ({
         localStorage.setItem('glorify-queue', JSON.stringify(nextQueue));
     },
     // Actions - Playlist Manager
-    createPlaylist: (name, description, coverImage) => {
+    createPlaylist: async (name, description, coverImage) => {
+        const tempId = 'playlist_' + Date.now();
         const newPlaylist = {
-            id: 'playlist_' + Date.now(),
+            id: tempId,
             userId: 'user_dev',
             name,
             description,
@@ -583,18 +647,46 @@ export const usePlayerStore = create((set, get) => ({
         const nextPlaylists = [...get().playlists, newPlaylist];
         set({ playlists: nextPlaylists });
         localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
+        try {
+            const serverPlaylist = await CloudRepository.createPlaylist(name, description, coverImage);
+            set((state) => ({
+                playlists: state.playlists.map((p) => (p.id === tempId ? { ...serverPlaylist, songs: p.songs } : p)),
+            }));
+            localStorage.setItem('glorify-playlists', JSON.stringify(get().playlists));
+            return get().playlists.find(p => p.id === serverPlaylist.id) || serverPlaylist;
+        }
+        catch (err) {
+            console.error('Failed to create playlist on cloud:', err);
+            return newPlaylist;
+        }
     },
-    deletePlaylist: (playlistId) => {
+    deletePlaylist: async (playlistId) => {
         const nextPlaylists = get().playlists.filter((p) => p.id !== playlistId);
         set({ playlists: nextPlaylists });
         localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
+        try {
+            if (!playlistId.startsWith('playlist_')) {
+                await CloudRepository.deletePlaylist(playlistId);
+            }
+        }
+        catch (err) {
+            console.error('Failed to delete playlist from cloud:', err);
+        }
     },
-    renamePlaylist: (playlistId, name, description, coverImage) => {
+    renamePlaylist: async (playlistId, name, description, coverImage) => {
         const nextPlaylists = get().playlists.map((p) => p.id === playlistId ? { ...p, name, description, coverImage: coverImage || p.coverImage } : p);
         set({ playlists: nextPlaylists });
         localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
+        try {
+            if (!playlistId.startsWith('playlist_')) {
+                await CloudRepository.updatePlaylist(playlistId, name, description, coverImage);
+            }
+        }
+        catch (err) {
+            console.error('Failed to update playlist on cloud:', err);
+        }
     },
-    addTrackToPlaylist: (playlistId, track) => {
+    addTrackToPlaylist: async (playlistId, track) => {
         const nextPlaylists = get().playlists.map((p) => {
             if (p.id === playlistId) {
                 if (!p.songs.includes(track.id)) {
@@ -605,13 +697,29 @@ export const usePlayerStore = create((set, get) => ({
         });
         set({ playlists: nextPlaylists });
         localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
+        try {
+            if (!playlistId.startsWith('playlist_')) {
+                await CloudRepository.addTrackToPlaylist(playlistId, track.id);
+            }
+        }
+        catch (err) {
+            console.error('Failed to add track to playlist on cloud:', err);
+        }
     },
-    removeTrackFromPlaylist: (playlistId, trackId) => {
+    removeTrackFromPlaylist: async (playlistId, trackId) => {
         const nextPlaylists = get().playlists.map((p) => p.id === playlistId ? { ...p, songs: p.songs.filter((sid) => sid !== trackId) } : p);
         set({ playlists: nextPlaylists });
         localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
+        try {
+            if (!playlistId.startsWith('playlist_')) {
+                await CloudRepository.removeTrackFromPlaylist(playlistId, trackId);
+            }
+        }
+        catch (err) {
+            console.error('Failed to remove track from playlist on cloud:', err);
+        }
     },
-    reorderPlaylistTracks: (playlistId, startIndex, endIndex) => {
+    reorderPlaylistTracks: async (playlistId, startIndex, endIndex) => {
         const nextPlaylists = get().playlists.map((p) => {
             if (p.id === playlistId) {
                 const result = Array.from(p.songs);
@@ -623,14 +731,23 @@ export const usePlayerStore = create((set, get) => ({
         });
         set({ playlists: nextPlaylists });
         localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
+        try {
+            if (!playlistId.startsWith('playlist_')) {
+                await CloudRepository.reorderPlaylistTracks(playlistId, startIndex, endIndex);
+            }
+        }
+        catch (err) {
+            console.error('Failed to reorder playlist tracks on cloud:', err);
+        }
     },
-    duplicatePlaylist: (playlistId) => {
+    duplicatePlaylist: async (playlistId) => {
         const { playlists } = get();
         const original = playlists.find(p => p.id === playlistId);
         if (original) {
+            const tempId = 'playlist_' + Date.now();
             const copy = {
                 ...original,
-                id: 'playlist_' + Date.now(),
+                id: tempId,
                 name: `${original.name} (Copy)`,
                 createdAt: new Date().toISOString()
             };
@@ -638,10 +755,20 @@ export const usePlayerStore = create((set, get) => ({
             set({ playlists: nextPlaylists });
             localStorage.setItem('glorify-playlists', JSON.stringify(nextPlaylists));
             useToastStore.getState().addToast(`Duplicated "${original.name}"`, 'success');
+            try {
+                const serverPlaylist = await CloudRepository.createPlaylist(copy.name, copy.description, copy.coverImage);
+                set((state) => ({
+                    playlists: state.playlists.map((p) => (p.id === tempId ? serverPlaylist : p)),
+                }));
+                localStorage.setItem('glorify-playlists', JSON.stringify(get().playlists));
+            }
+            catch (err) {
+                console.error('Failed to duplicate playlist on cloud:', err);
+            }
         }
     },
     // Actions - Favorites
-    toggleFavoriteTrack: (trackId) => {
+    toggleFavoriteTrack: async (trackId) => {
         const favorites = get().favoritedTrackIds;
         const isFav = favorites.includes(trackId);
         const nextFavorites = isFav
@@ -650,22 +777,55 @@ export const usePlayerStore = create((set, get) => ({
         set({ favoritedTrackIds: nextFavorites });
         localStorage.setItem('glorify-favorites', JSON.stringify(nextFavorites));
         useToastStore.getState().addToast(isFav ? 'Removed from Liked Songs' : 'Added to Liked Songs', isFav ? 'info' : 'favorite');
+        try {
+            if (isFav) {
+                await CloudRepository.removeFavorite(trackId, 'song');
+            }
+            else {
+                await CloudRepository.addFavorite(trackId, 'song');
+            }
+        }
+        catch (err) {
+            console.error('Failed to toggle favorite track on cloud:', err);
+        }
     },
-    toggleFavoriteAlbum: (albumId) => {
+    toggleFavoriteAlbum: async (albumId) => {
         const favAlbums = get().favoritedAlbumIds;
         const isFav = favAlbums.includes(albumId);
         const nextFavAlbums = isFav ? favAlbums.filter(id => id !== albumId) : [...favAlbums, albumId];
         set({ favoritedAlbumIds: nextFavAlbums });
         localStorage.setItem('glorify-favorites-albums', JSON.stringify(nextFavAlbums));
         useToastStore.getState().addToast(isFav ? 'Removed Album from Library' : 'Added Album to Library', 'success');
+        try {
+            if (isFav) {
+                await CloudRepository.removeFavorite(albumId, 'album');
+            }
+            else {
+                await CloudRepository.addFavorite(albumId, 'album');
+            }
+        }
+        catch (err) {
+            console.error('Failed to toggle favorite album on cloud:', err);
+        }
     },
-    toggleFavoriteArtist: (artistId) => {
+    toggleFavoriteArtist: async (artistId) => {
         const favArtists = get().favoritedArtistIds;
         const isFav = favArtists.includes(artistId);
         const nextFavArtists = isFav ? favArtists.filter(id => id !== artistId) : [...favArtists, artistId];
         set({ favoritedArtistIds: nextFavArtists });
         localStorage.setItem('glorify-favorites-artists', JSON.stringify(nextFavArtists));
         useToastStore.getState().addToast(isFav ? 'Unfollowed Artist' : 'Followed Artist', 'success');
+        try {
+            if (isFav) {
+                await CloudRepository.removeFavorite(artistId, 'artist');
+            }
+            else {
+                await CloudRepository.addFavorite(artistId, 'artist');
+            }
+        }
+        catch (err) {
+            console.error('Failed to toggle favorite artist on cloud:', err);
+        }
     },
     // Actions - Simulated Downloads
     startDownloadTrack: (track) => {
@@ -770,6 +930,51 @@ export const usePlayerStore = create((set, get) => ({
                 set({ sleepTimerRemaining: remaining - 1 });
             }
         }, 1000);
+    },
+    syncCloudData: async () => {
+        // If already syncing, don't trigger again
+        if (get().syncStatus === 'syncing')
+            return;
+        set({ syncStatus: 'syncing' });
+        try {
+            const [playlists, favorites, history] = await Promise.all([
+                CloudRepository.getPlaylists(),
+                CloudRepository.getFavorites(),
+                CloudRepository.getHistory(),
+            ]);
+            set({
+                playlists,
+                favoritedTrackIds: favorites.songs || [],
+                favoritedAlbumIds: favorites.albums || [],
+                favoritedArtistIds: favorites.artists || [],
+                listeningHistory: history || [],
+                syncStatus: 'synced',
+            });
+            localStorage.setItem('glorify-playlists', JSON.stringify(playlists));
+            localStorage.setItem('glorify-favorites', JSON.stringify(favorites.songs || []));
+            localStorage.setItem('glorify-favorites-albums', JSON.stringify(favorites.albums || []));
+            localStorage.setItem('glorify-favorites-artists', JSON.stringify(favorites.artists || []));
+            localStorage.setItem('glorify-listening-history', JSON.stringify(history || []));
+        }
+        catch (err) {
+            console.error('Failed to sync cloud data:', err);
+            set({ syncStatus: 'error' });
+        }
+    },
+    clearCloudData: () => {
+        set({
+            playlists: [],
+            favoritedTrackIds: [],
+            favoritedAlbumIds: [],
+            favoritedArtistIds: [],
+            listeningHistory: [],
+            syncStatus: 'idle',
+        });
+        localStorage.removeItem('glorify-playlists');
+        localStorage.removeItem('glorify-favorites');
+        localStorage.removeItem('glorify-favorites-albums');
+        localStorage.removeItem('glorify-favorites-artists');
+        localStorage.removeItem('glorify-listening-history');
     },
 }));
 //# sourceMappingURL=playerStore.js.map

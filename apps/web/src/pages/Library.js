@@ -5,7 +5,9 @@ import { TrackCard } from '../components/Library/TrackCard.js';
 import { CatalogCard } from '../components/Library/CatalogCard.js';
 import { PlaylistDialog } from '../components/Library/PlaylistDialog.js';
 import { usePlayerStore } from '../store/playerStore.js';
-import { Music, Disc, Users, Plus, ListMusic, Search, Heart, LayoutGrid, List, Pin, SlidersHorizontal } from 'lucide-react';
+import { useLocalLibraryStore } from '../store/localLibraryStore.js';
+import { MetadataEditorModal } from '../components/Library/MetadataEditorModal.js';
+import { Music, Disc, Users, Plus, ListMusic, Search, Heart, LayoutGrid, List, Pin, SlidersHorizontal, Tag, Sparkles, Play, Shuffle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LibrarySkeleton } from '../components/SkeletonLoaders.js';
 import { NoDownloads, NoFavorites, NoPlaylists } from '../components/EmptyStates.js';
@@ -13,7 +15,7 @@ export function Library() {
     const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
     const rawTab = searchParams.get('tab');
-    const activeTab = ['songs', 'albums', 'artists', 'playlists', 'liked', 'downloads'].includes(rawTab) ? rawTab : 'songs';
+    const activeTab = ['songs', 'albums', 'artists', 'playlists', 'liked', 'downloads', 'genres', 'collections'].includes(rawTab) ? rawTab : 'songs';
     const [tracks, setTracks] = useState([]);
     const [albums, setAlbums] = useState([]);
     const [artists, setArtists] = useState([]);
@@ -33,9 +35,43 @@ export function Library() {
         }
     });
     const [loading, setLoading] = useState(true);
-    const { playlists, createPlaylist, playTrack, favoritedTrackIds, favoritedAlbumIds, favoritedArtistIds, downloadedTrackIds } = usePlayerStore();
+    const { playlists, createPlaylist, playTrack, favoritedTrackIds, favoritedAlbumIds, favoritedArtistIds, downloadedTrackIds, listeningHistory, totalPlays, setQueue, toggleShuffle, isShuffle, } = usePlayerStore();
+    const { localTracks, localAlbums, localArtists, localGenres, folders, scanningState, scanProgress, isPermissionRequired, loadSavedLibrary, requestFolderPermissions, importDirectory, importFileList, deleteLibrary } = useLocalLibraryStore();
+    const combinedTracks = useMemo(() => {
+        return [...localTracks, ...tracks];
+    }, [localTracks, tracks]);
+    const combinedAlbums = useMemo(() => {
+        return [...localAlbums, ...albums];
+    }, [localAlbums, albums]);
+    const combinedArtists = useMemo(() => {
+        return [...localArtists, ...artists];
+    }, [localArtists, artists]);
     const [showCreateDialog, setShowCreateDialog] = useState(false);
+    const [selectionMode, setSelectionMode] = useState(false);
+    const [selectedTrackIds, setSelectedTrackIds] = useState([]);
+    const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+    const fallbackInputRef = React.useRef(null);
+    const handleImportClick = () => {
+        if ('showDirectoryPicker' in window) {
+            importDirectory();
+        }
+        else {
+            fallbackInputRef.current?.click();
+        }
+    };
     const handlePlayAlbum = (albumId) => {
+        if (albumId.startsWith('local_album_')) {
+            const localAlbum = localAlbums.find(al => al.id === albumId);
+            if (localAlbum && localAlbum.tracks.length > 0) {
+                const albumTracks = localAlbum.tracks
+                    .map(trackId => combinedTracks.find(t => t.id === trackId))
+                    .filter((t) => !!t);
+                if (albumTracks.length > 0) {
+                    playTrack(albumTracks[0], albumTracks);
+                }
+            }
+            return;
+        }
         StaticMusicRepository.getAlbumDetails(albumId).then((res) => {
             if (res && res.tracks.length > 0) {
                 playTrack(res.tracks[0], res.tracks);
@@ -43,6 +79,16 @@ export function Library() {
         });
     };
     const handlePlayArtist = (artistId) => {
+        if (artistId.startsWith('local_artist_')) {
+            const localArtist = localArtists.find(art => art.id === artistId);
+            if (localArtist && localArtist.tracks && localArtist.tracks.length > 0) {
+                const artistTracks = combinedTracks.filter(t => localArtist.tracks.includes(t.id));
+                if (artistTracks.length > 0) {
+                    playTrack(artistTracks[0], artistTracks);
+                }
+            }
+            return;
+        }
         StaticMusicRepository.getArtistDetails(artistId).then((res) => {
             if (res && res.tracks.length > 0) {
                 playTrack(res.tracks[0], res.tracks);
@@ -52,13 +98,15 @@ export function Library() {
     const handlePlayPlaylist = (playlistId) => {
         const playlist = playlists.find((p) => p.id === playlistId);
         if (playlist && playlist.songs.length > 0) {
-            const playlistTracks = tracks.filter((t) => playlist.songs.includes(t.id));
+            const playlistTracks = combinedTracks.filter((t) => playlist.songs.includes(t.id));
             if (playlistTracks.length > 0) {
                 playTrack(playlistTracks[0], playlistTracks);
             }
         }
     };
     useEffect(() => {
+        // Load local library from IndexedDB
+        loadSavedLibrary();
         const loadData = async () => {
             try {
                 setLoading(true);
@@ -97,12 +145,13 @@ export function Library() {
     };
     // Helper duration getter for playlists
     const getPlaylistDuration = (p) => {
-        return tracks.filter(t => p.songs.includes(t.id)).reduce((acc, t) => acc + t.duration, 0);
+        return combinedTracks.filter(t => p.songs.includes(t.id)).reduce((acc, t) => acc + t.duration, 0);
     };
     // Reactive sorting & filtering logic
     const processedSongs = useMemo(() => {
-        let result = tracks.filter(t => t.title.toLowerCase().includes(query.toLowerCase()) ||
-            t.artist.toLowerCase().includes(query.toLowerCase()));
+        let result = combinedTracks.filter(t => t.title.toLowerCase().includes(query.toLowerCase()) ||
+            t.artist.toLowerCase().includes(query.toLowerCase()) ||
+            (t.lyrics && (typeof t.lyrics === 'string' ? t.lyrics : t.lyrics.text || '').toLowerCase().includes(query.toLowerCase())));
         if (sortBy === 'alphabetical')
             result.sort((a, b) => a.title.localeCompare(b.title));
         else if (sortBy === 'creator')
@@ -110,31 +159,70 @@ export function Library() {
         else if (sortBy === 'duration')
             result.sort((a, b) => b.duration - a.duration);
         return result;
-    }, [tracks, query, sortBy]);
+    }, [combinedTracks, query, sortBy]);
     // Liked Albums & Liked Artists filtering
     const processedAlbums = useMemo(() => {
-        let list = albums;
+        let list = combinedAlbums;
         if (activeTab === 'liked') {
-            list = albums.filter(al => favoritedAlbumIds.includes(al.id));
+            list = combinedAlbums.filter(al => favoritedAlbumIds.includes(al.id));
         }
-        let result = list.filter(al => al.title.toLowerCase().includes(query.toLowerCase()) ||
-            al.artistName.toLowerCase().includes(query.toLowerCase()));
-        if (sortBy === 'alphabetical')
+        // Filtering search query (case-insensitive)
+        let result = list.filter(al => {
+            const q = query.toLowerCase().trim();
+            if (!q)
+                return true;
+            const titleMatch = al.title.toLowerCase().includes(q);
+            const artistMatch = al.artistName.toLowerCase().includes(q);
+            const albumArtistMatch = al.albumArtist ? al.albumArtist.toLowerCase().includes(q) : false;
+            const genreMatch = al.genre ? al.genre.toLowerCase().includes(q) : false;
+            const yearMatch = al.releaseYear ? String(al.releaseYear).includes(q) : false;
+            return titleMatch || artistMatch || albumArtistMatch || genreMatch || yearMatch;
+        });
+        // Sorting
+        // Sort criteria: Album name ('alphabetical'), Artist ('creator'), Release year ('year'), Recently added ('recently_added'), Track count ('tracks_count'), Duration ('duration')
+        if (sortBy === 'alphabetical') {
             result.sort((a, b) => a.title.localeCompare(b.title));
-        else if (sortBy === 'creator')
-            result.sort((a, b) => a.artistName.localeCompare(b.artistName));
+        }
+        else if (sortBy === 'creator') {
+            result.sort((a, b) => {
+                const artA = a.albumArtist || a.artistName;
+                const artB = b.albumArtist || b.artistName;
+                return artA.localeCompare(artB);
+            });
+        }
+        else if (sortBy === 'year') {
+            result.sort((a, b) => (a.releaseYear || 0) - (b.releaseYear || 0));
+        }
+        else if (sortBy === 'recently_added') {
+            const getAlbumAddedTime = (al) => {
+                const albumTracks = combinedTracks.filter(t => al.tracks.includes(t.id));
+                const times = albumTracks.map(t => t.createdAt ? new Date(t.createdAt).getTime() : 0);
+                return times.length > 0 ? Math.max(...times) : 0;
+            };
+            result.sort((a, b) => getAlbumAddedTime(b) - getAlbumAddedTime(a));
+        }
+        else if (sortBy === 'tracks_count') {
+            result.sort((a, b) => (b.tracks.length || 0) - (a.tracks.length || 0));
+        }
+        else if (sortBy === 'duration') {
+            const getAlbumDuration = (al) => {
+                const albumTracks = combinedTracks.filter(t => al.tracks.includes(t.id));
+                return albumTracks.reduce((acc, t) => acc + t.duration, 0);
+            };
+            result.sort((a, b) => getAlbumDuration(b) - getAlbumDuration(a));
+        }
         return result;
-    }, [albums, query, sortBy, activeTab, favoritedAlbumIds]);
+    }, [combinedAlbums, query, sortBy, activeTab, favoritedAlbumIds, combinedTracks]);
     const processedArtists = useMemo(() => {
-        let list = artists;
+        let list = combinedArtists;
         if (activeTab === 'liked') {
-            list = artists.filter(ar => favoritedArtistIds.includes(ar.id));
+            list = combinedArtists.filter(ar => favoritedArtistIds.includes(ar.id));
         }
         let result = list.filter(art => art.name.toLowerCase().includes(query.toLowerCase()));
         if (sortBy === 'alphabetical')
             result.sort((a, b) => a.name.localeCompare(b.name));
         return result;
-    }, [artists, query, sortBy, activeTab, favoritedArtistIds]);
+    }, [combinedArtists, query, sortBy, activeTab, favoritedArtistIds]);
     const processedPlaylists = useMemo(() => {
         let result = playlists.filter(p => p.name.toLowerCase().includes(query.toLowerCase()));
         result.sort((a, b) => {
@@ -157,26 +245,139 @@ export function Library() {
             return 0;
         });
         return result;
-    }, [playlists, query, sortBy, pinnedPlaylistIds, tracks]);
+    }, [playlists, query, sortBy, pinnedPlaylistIds, combinedTracks]);
     const favoritedTracks = useMemo(() => {
-        let result = tracks.filter(t => favoritedTrackIds.includes(t.id));
+        let result = combinedTracks.filter(t => favoritedTrackIds.includes(t.id));
         if (sortBy === 'alphabetical')
             result.sort((a, b) => a.title.localeCompare(b.title));
         else if (sortBy === 'creator')
             result.sort((a, b) => a.artist.localeCompare(b.artist));
         return result;
-    }, [tracks, favoritedTrackIds, sortBy]);
+    }, [combinedTracks, favoritedTrackIds, sortBy]);
     const downloadedTracks = useMemo(() => {
-        let result = tracks.filter(t => downloadedTrackIds.includes(t.id));
+        let result = combinedTracks.filter(t => downloadedTrackIds.includes(t.id));
         if (sortBy === 'alphabetical')
             result.sort((a, b) => a.title.localeCompare(b.title));
         return result;
-    }, [tracks, downloadedTrackIds, sortBy]);
+    }, [combinedTracks, downloadedTrackIds, sortBy]);
+    const processedGenres = useMemo(() => {
+        let result = localGenres;
+        if (query.trim() !== '') {
+            const q = query.toLowerCase().trim();
+            result = localGenres.filter(g => g.name.toLowerCase().includes(q));
+        }
+        if (sortBy === 'alphabetical') {
+            result = [...result].sort((a, b) => a.name.localeCompare(b.name));
+        }
+        else if (sortBy === 'tracks_count') {
+            result = [...result].sort((a, b) => b.tracks.length - a.tracks.length);
+        }
+        return result;
+    }, [localGenres, query, sortBy]);
+    const processedCollections = useMemo(() => {
+        // 1. Recently Added
+        const recentlyAddedTracks = [...combinedTracks]
+            .filter(t => t.source === 'local')
+            .sort((a, b) => {
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return timeB - timeA;
+        });
+        // 2. Recently Played
+        const uniqueHistoryIds = Array.from(new Set((listeningHistory || []).map(item => item.trackId)));
+        const recentlyPlayedTracks = uniqueHistoryIds
+            .map(id => combinedTracks.find(t => t.id === id))
+            .filter((t) => !!t);
+        // 3. Most Played
+        const mostPlayedTracks = [...combinedTracks]
+            .filter(t => (totalPlays?.[t.id] || 0) > 0)
+            .sort((a, b) => (totalPlays?.[b.id] || 0) - (totalPlays?.[a.id] || 0));
+        // 4. Favorites
+        const favoriteTracks = combinedTracks.filter(t => favoritedTrackIds.includes(t.id));
+        // 5. Never Played
+        const historySet = new Set((listeningHistory || []).map(item => item.trackId));
+        const neverPlayedTracks = combinedTracks
+            .filter(t => t.source === 'local' && !historySet.has(t.id))
+            .sort((a, b) => a.title.localeCompare(b.title));
+        // 6. Longest Tracks
+        const longestTracks = [...combinedTracks]
+            .filter(t => t.source === 'local')
+            .sort((a, b) => b.duration - a.duration);
+        // 7. Shortest Tracks
+        const shortestTracks = [...combinedTracks]
+            .filter(t => t.source === 'local')
+            .sort((a, b) => a.duration - b.duration);
+        const collections = [
+            {
+                id: 'recently-added',
+                name: 'Recently Added',
+                description: 'Your latest additions',
+                tracks: recentlyAddedTracks.slice(0, 50),
+                gradient: 'from-emerald-600 to-teal-800',
+                icon: Sparkles
+            },
+            {
+                id: 'recently-played',
+                name: 'Recently Played',
+                description: 'Jump back into your listening',
+                tracks: recentlyPlayedTracks.slice(0, 50),
+                gradient: 'from-indigo-600 to-blue-800',
+                icon: Music
+            },
+            {
+                id: 'most-played',
+                name: 'Most Played',
+                description: 'Your most listened-to tracks',
+                tracks: mostPlayedTracks.slice(0, 50),
+                gradient: 'from-[#D4AF37] to-[#8C6D1F]',
+                icon: Sparkles
+            },
+            {
+                id: 'favorites',
+                name: 'Favorites',
+                description: 'Your loved tracks',
+                tracks: favoriteTracks,
+                gradient: 'from-rose-600 to-red-800',
+                icon: Heart
+            },
+            {
+                id: 'never-played',
+                name: 'Never Played',
+                description: "Discover music you haven't heard yet",
+                tracks: neverPlayedTracks,
+                gradient: 'from-purple-600 to-fuchsia-800',
+                icon: Disc
+            },
+            {
+                id: 'longest-tracks',
+                name: 'Longest Tracks',
+                description: 'Your longest audio tracks',
+                tracks: longestTracks.slice(0, 50),
+                gradient: 'from-orange-600 to-amber-800',
+                icon: ListMusic
+            },
+            {
+                id: 'shortest-tracks',
+                name: 'Shortest Tracks',
+                description: 'Your shortest audio tracks',
+                tracks: shortestTracks.slice(0, 50),
+                gradient: 'from-cyan-600 to-sky-800',
+                icon: SlidersHorizontal
+            }
+        ];
+        if (query.trim() !== '') {
+            const q = query.toLowerCase().trim();
+            return collections.filter(c => c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q));
+        }
+        return collections;
+    }, [combinedTracks, listeningHistory, totalPlays, favoritedTrackIds, query]);
     const tabs = [
         { id: 'songs', label: 'Songs', icon: Music },
         { id: 'albums', label: 'Albums', icon: Disc },
         { id: 'artists', label: 'Artists', icon: Users },
+        { id: 'genres', label: 'Genres', icon: Tag },
         { id: 'playlists', label: 'Playlists', icon: ListMusic },
+        { id: 'collections', label: 'Smart Collections', icon: Sparkles },
         { id: 'liked', label: 'Likes', icon: Heart },
         { id: 'downloads', label: 'Downloads', icon: Music }
     ];
@@ -193,6 +394,39 @@ export function Library() {
             onClick: () => setShowCreateDialog(true),
             className: 'flex items-center gap-ch-2 px-ch-4 py-2 bg-glorify-accent text-glorify-carbon-950 rounded-full text-xs font-semibold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer outline-none focus-ring',
         }, React.createElement(Plus, { className: 'w-ch-4 h-ch-4' }), 'Create Playlist')), 
+    // Local Music Control Panel
+    React.createElement('div', { className: 'flex flex-col gap-4 p-5 bg-glorify-bg-surface/50 border border-glorify-border-primary/10 rounded-2xl' }, React.createElement('div', { className: 'flex flex-wrap items-center justify-between gap-4' }, React.createElement('div', { className: 'flex flex-col gap-1' }, React.createElement('h3', { className: 'text-sm font-bold text-glorify-text-primary' }, 'LOCAL MUSIC'), folders.length > 0
+        ? React.createElement('p', { className: 'text-xs text-glorify-text-secondary font-medium' }, `${localTracks.length} tracks • ${localAlbums.length} albums • ${localArtists.length} artists`)
+        : React.createElement('p', { className: 'text-xs text-glorify-text-muted font-normal' }, 'Import folders containing MP3, FLAC, M4A, etc. to organize them locally.')), React.createElement('div', { className: 'flex items-center gap-3' }, folders.length > 0 &&
+        React.createElement('button', {
+            onClick: deleteLibrary,
+            className: 'px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-full text-xs font-semibold cursor-pointer transition-all border border-transparent hover:border-red-500/25',
+        }, 'Clear Library'), React.createElement('button', {
+        onClick: handleImportClick,
+        className: 'px-4 py-2 bg-glorify-accent text-glorify-carbon-950 hover:scale-105 active:scale-95 rounded-full text-xs font-bold cursor-pointer transition-all shadow-md',
+    }, 'Import Folder'))), React.createElement('input', {
+        type: 'file',
+        ref: fallbackInputRef,
+        // @ts-ignore
+        webkitdirectory: 'true',
+        // @ts-ignore
+        directory: '',
+        multiple: true,
+        style: { display: 'none' },
+        onChange: (e) => {
+            if (e.target.files) {
+                importFileList(e.target.files);
+            }
+        },
+    }), scanningState === 'scanning' &&
+        React.createElement('div', { className: 'flex flex-col gap-1.5 w-full mt-2' }, React.createElement('div', { className: 'flex justify-between text-[10px] text-glorify-text-secondary font-semibold' }, React.createElement('span', null, 'Scanning local files...'), React.createElement('span', null, `${scanProgress.current} / ${scanProgress.total}`)), React.createElement('div', { className: 'w-full h-1.5 bg-glorify-bg-surface border border-glorify-border-primary/10 rounded-full overflow-hidden' }, React.createElement('div', {
+            className: 'h-full bg-glorify-accent transition-all duration-300',
+            style: { width: `${scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0}%` },
+        }))), isPermissionRequired &&
+        React.createElement('div', { className: 'flex items-center justify-between p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl mt-2 text-xs text-amber-300 font-semibold' }, React.createElement('span', null, 'Permission required to read files from folders.'), React.createElement('button', {
+            onClick: requestFolderPermissions,
+            className: 'px-3 py-1 bg-amber-500 text-glorify-carbon-950 rounded-full text-[10px] font-bold cursor-pointer transition-all hover:scale-105',
+        }, 'Grant Access'))), 
     // Search, Sort, View Controls subheader toolbar
     React.createElement('div', { className: 'flex flex-col xl:flex-row xl:items-center justify-between gap-ch-4 pb-ch-2 mt-ch-1 border-b border-glorify-border-primary/5' }, 
     // Left: Tab chips
@@ -206,7 +440,7 @@ export function Library() {
     // Right: Toolbar controls
     React.createElement('div', { className: 'flex flex-wrap items-center gap-4 xl:justify-end' }, 
     // Dynamic Card Size Slider (Visible in Grid View)
-    viewMode === 'grid' && activeTab !== 'songs' && activeTab !== 'downloads' &&
+    viewMode === 'grid' && activeTab !== 'songs' && activeTab !== 'downloads' && activeTab !== 'collections' &&
         React.createElement('div', { className: 'flex items-center gap-2 bg-glorify-bg-surface/40 border border-glorify-border-primary/10 rounded-full px-4 py-1.5 shadow-sm text-xs text-glorify-text-secondary font-medium' }, React.createElement(SlidersHorizontal, { className: 'w-3.5 h-3.5 text-glorify-accent' }), React.createElement('span', null, 'Card Size'), React.createElement('input', {
             type: 'range',
             min: 120,
@@ -239,7 +473,23 @@ export function Library() {
         value: sortBy,
         onChange: (e) => setSortBy(e.target.value),
         className: 'px-ch-4 py-1.5 rounded-full bg-glorify-bg-surface/45 border border-glorify-border-primary/10 text-xs text-glorify-text-primary focus:border-glorify-accent cursor-pointer outline-none shadow-sm font-semibold transition-all'
-    }, React.createElement('option', { value: 'alphabetical' }, 'Alphabetical'), React.createElement('option', { value: 'recently_added' }, 'Recently Added'), React.createElement('option', { value: 'creator' }, 'Creator'), React.createElement('option', { value: 'duration' }, 'Duration')))), 
+    }, activeTab === 'albums'
+        ? React.createElement(React.Fragment, null, React.createElement('option', { value: 'alphabetical' }, 'Album Name'), React.createElement('option', { value: 'creator' }, 'Artist'), React.createElement('option', { value: 'year' }, 'Release Year'), React.createElement('option', { value: 'recently_added' }, 'Recently Added'), React.createElement('option', { value: 'tracks_count' }, 'Track Count'), React.createElement('option', { value: 'duration' }, 'Duration'))
+        : React.createElement(React.Fragment, null, React.createElement('option', { value: 'alphabetical' }, 'Alphabetical'), React.createElement('option', { value: 'recently_added' }, 'Recently Added'), React.createElement('option', { value: 'creator' }, 'Creator'), React.createElement('option', { value: 'duration' }, 'Duration'))), 
+    // Select Multiple action button
+    activeTab === 'songs' && localTracks.length > 0 &&
+        React.createElement('button', {
+            onClick: () => {
+                if (selectionMode) {
+                    setSelectionMode(false);
+                    setSelectedTrackIds([]);
+                }
+                else {
+                    setSelectionMode(true);
+                }
+            },
+            className: `px-4 py-1.5 rounded-full border border-glorify-border-primary/10 text-xs font-semibold cursor-pointer transition-all shadow-sm ${selectionMode ? 'bg-glorify-accent text-glorify-carbon-950 font-bold' : 'bg-glorify-bg-surface/45 text-glorify-text-primary hover:text-glorify-accent'}`
+        }, selectionMode ? 'Cancel Selection' : 'Select Multiple'))), 
     // Content container with layout switcher
     React.createElement('div', { className: 'flex-1 min-h-[50vh] mt-ch-4' }, React.createElement(AnimatePresence, { mode: 'wait' }, React.createElement(motion.div, {
         key: activeTab + '-' + query + '-' + sortBy + '-' + viewMode + '-' + cardSize,
@@ -253,37 +503,59 @@ export function Library() {
     activeTab === 'songs' &&
         React.createElement('div', { className: 'flex flex-col gap-1 bg-glorify-bg-surface/20 border border-glorify-border-primary/5 rounded-[20px] p-ch-2 shadow-sm' }, processedSongs.length === 0
             ? React.createElement('div', { className: 'text-center py-16 text-sm text-glorify-text-muted font-light' }, 'No matches found in library.')
-            : processedSongs.map((track, idx) => React.createElement(TrackCard, {
-                key: track.id,
+            : processedSongs.map((track, idx) => React.createElement('div', { key: track.id, className: 'flex items-center gap-3 w-full pr-2' }, selectionMode && track.source === 'local' &&
+                React.createElement('input', {
+                    type: 'checkbox',
+                    checked: selectedTrackIds.includes(track.id),
+                    onChange: () => {
+                        setSelectedTrackIds(prev => prev.includes(track.id) ? prev.filter(id => id !== track.id) : [...prev, track.id]);
+                    },
+                    className: 'w-4 h-4 rounded border-glorify-border-primary/20 text-glorify-accent accent-glorify-accent cursor-pointer'
+                }), React.createElement('div', { className: 'flex-1' }, React.createElement(TrackCard, {
                 track: track,
                 index: idx,
                 queueContext: processedSongs,
                 onGoToAlbum: (albumId) => navigate(`/album/${albumId}`),
                 onGoToArtist: (artistId) => navigate(`/artist/${artistId}`),
-            }))), 
+            }))))), 
     // ALBUMS TAB
     activeTab === 'albums' &&
-        (viewMode === 'grid'
-            ? React.createElement('div', { style: gridStyles, className: 'grid gap-ch-6' }, processedAlbums.length === 0
-                ? React.createElement('div', { className: 'col-span-full text-center py-16 text-sm text-glorify-text-muted font-light' }, 'No albums saved matching search.')
-                : processedAlbums.map((album) => React.createElement(CatalogCard, {
-                    key: album.id,
-                    id: album.id,
-                    title: album.title,
-                    subtitle: album.artistName,
-                    type: 'album',
-                    year: album.releaseYear,
-                    onClick: () => navigate(`/album/${album.id}`),
-                    onPlayClick: (e) => {
-                        e.stopPropagation();
-                        handlePlayAlbum(album.id);
-                    },
-                })))
-            : React.createElement('div', { className: 'flex flex-col gap-1.5 bg-glorify-bg-surface/20 border border-glorify-border-primary/5 rounded-[20px] p-4 shadow-sm' }, processedAlbums.map((album) => React.createElement('div', {
-                key: album.id,
-                onClick: () => navigate(`/album/${album.id}`),
-                className: 'flex items-center justify-between p-3 rounded-[12px] hover:bg-white/5 cursor-pointer text-left transition-all'
-            }, React.createElement('div', { className: 'flex items-center gap-3 min-w-0' }, React.createElement('img', { src: album.coverUrl, className: 'w-10 h-10 rounded object-cover flex-shrink-0' }), React.createElement('div', { className: 'min-w-0' }, React.createElement('div', { className: 'text-sm font-semibold text-glorify-text-primary truncate' }, album.title), React.createElement('div', { className: 'text-xs text-glorify-text-muted mt-0.5' }, album.artistName))), React.createElement('span', { className: 'text-xs text-glorify-text-muted' }, album.releaseYear))))), 
+        (combinedAlbums.length === 0
+            ? React.createElement('div', { className: 'flex flex-col items-center justify-center text-center py-20 px-6 bg-glorify-bg-surface/10 border border-glorify-border-primary/5 rounded-[28px] gap-4 max-w-sm mx-auto font-sans shadow-sm' }, React.createElement(Disc, { className: 'w-12 h-12 text-glorify-accent animate-pulse' }), React.createElement('h3', { className: 'text-sm font-bold text-glorify-text-primary' }, 'No albums yet'), React.createElement('p', { className: 'text-xs text-glorify-text-muted leading-relaxed' }, 'Import your music library to start building your collection.'), React.createElement('button', {
+                onClick: handleImportClick,
+                className: 'mt-2 px-5 py-2 bg-glorify-accent text-glorify-carbon-950 hover:scale-105 active:scale-95 rounded-full text-xs font-bold cursor-pointer transition-all shadow-md'
+            }, 'Import Music'))
+            : (viewMode === 'grid'
+                ? React.createElement('div', { style: gridStyles, className: 'grid gap-ch-6' }, processedAlbums.length === 0
+                    ? React.createElement('div', { className: 'col-span-full text-center py-16 text-sm text-glorify-text-muted font-light' }, 'No albums saved matching search.')
+                    : processedAlbums.map((album) => React.createElement(CatalogCard, {
+                        key: album.id,
+                        id: album.id,
+                        title: album.title,
+                        subtitle: album.artistName,
+                        type: 'album',
+                        year: album.releaseYear,
+                        onClick: () => navigate(`/album/${album.id}`),
+                        onPlayClick: (e) => {
+                            e.stopPropagation();
+                            handlePlayAlbum(album.id);
+                        },
+                    })))
+                : React.createElement('div', { className: 'flex flex-col gap-1.5 bg-glorify-bg-surface/20 border border-glorify-border-primary/5 rounded-[20px] p-4 shadow-sm font-sans' }, React.createElement('div', { className: 'grid grid-cols-12 items-center px-3 py-2 text-[10px] font-bold text-glorify-text-muted uppercase tracking-wider border-b border-glorify-border-primary/5 mb-1' }, React.createElement('div', { className: 'col-span-5 md:col-span-4' }, 'Album'), React.createElement('div', { className: 'col-span-3 md:col-span-3' }, 'Artist'), React.createElement('div', { className: 'col-span-2 md:col-span-2' }, 'Year'), React.createElement('div', { className: 'hidden sm:block sm:col-span-1' }, 'Tracks'), React.createElement('div', { className: 'col-span-2 md:col-span-2 text-right pr-2' }, 'Duration')), processedAlbums.map((album) => {
+                    const songCount = album.tracks.length;
+                    const albumTracksObjs = combinedTracks.filter(t => album.tracks.includes(t.id));
+                    const albumDuration = album.totalDuration || albumTracksObjs.reduce((acc, t) => acc + t.duration, 0);
+                    const formatTotalTime = (secs) => {
+                        const mins = Math.round(secs / 60);
+                        return `${mins} min`;
+                    };
+                    const durationText = formatTotalTime(albumDuration);
+                    return React.createElement('div', {
+                        key: album.id,
+                        onClick: () => navigate(`/album/${album.id}`),
+                        className: 'grid grid-cols-12 items-center p-3 rounded-[12px] hover:bg-white/5 cursor-pointer text-left transition-all gap-4'
+                    }, React.createElement('div', { className: 'col-span-5 md:col-span-4 flex items-center gap-3 min-w-0' }, React.createElement('img', { src: album.coverUrl || 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=100', className: 'w-10 h-10 rounded object-cover flex-shrink-0' }), React.createElement('div', { className: 'text-sm font-semibold text-glorify-text-primary truncate' }, album.title)), React.createElement('div', { className: 'col-span-3 md:col-span-3 text-xs text-glorify-text-secondary truncate' }, album.albumArtist || album.artistName), React.createElement('div', { className: 'col-span-2 md:col-span-2 text-xs text-glorify-text-secondary' }, album.releaseYear || '-'), React.createElement('div', { className: 'hidden sm:block sm:col-span-1 text-xs text-glorify-text-muted' }, `${songCount} song${songCount === 1 ? '' : 's'}`), React.createElement('div', { className: 'col-span-2 md:col-span-2 text-right text-xs text-glorify-text-muted pr-2' }, durationText));
+                })))), 
     // ARTISTS TAB
     activeTab === 'artists' &&
         (viewMode === 'grid'
@@ -307,6 +579,30 @@ export function Library() {
                 onClick: () => navigate(`/artist/${artist.id}`),
                 className: 'flex items-center justify-between p-3 rounded-[12px] hover:bg-white/5 cursor-pointer text-left transition-all'
             }, React.createElement('div', { className: 'flex items-center gap-3 min-w-0' }, React.createElement('img', { src: artist.avatarUrl, className: 'w-10 h-10 rounded-full object-cover flex-shrink-0' }), React.createElement('div', { className: 'min-w-0' }, React.createElement('div', { className: 'text-sm font-semibold text-glorify-text-primary truncate' }, artist.name), React.createElement('div', { className: 'text-xs text-glorify-text-muted mt-0.5' }, artist.genres.join(' / ')))))))), 
+    // GENRES TAB
+    activeTab === 'genres' &&
+        (localGenres.length === 0
+            ? React.createElement('div', { className: 'flex flex-col items-center justify-center text-center py-20 px-6 bg-glorify-bg-surface/10 border border-glorify-border-primary/5 rounded-[28px] gap-4 max-w-sm mx-auto font-sans shadow-sm' }, React.createElement(Tag, { className: 'w-12 h-12 text-glorify-accent animate-pulse' }), React.createElement('h3', { className: 'text-sm font-bold text-glorify-text-primary' }, 'No genres yet'), React.createElement('p', { className: 'text-xs text-glorify-text-muted leading-relaxed' }, 'Import music files containing genre tags to populate this section.'))
+            : React.createElement('div', { style: gridStyles, className: 'grid gap-ch-6' }, processedGenres.length === 0
+                ? React.createElement('div', { className: 'col-span-full text-center py-16 text-sm text-glorify-text-muted font-light' }, 'No genres saved matching search.')
+                : processedGenres.map((genre) => React.createElement(CatalogCard, {
+                    key: genre.id,
+                    id: genre.id,
+                    title: genre.name,
+                    subtitle: `${genre.tracks.length} song${genre.tracks.length === 1 ? '' : 's'} · ${genre.albums.length} album${genre.albums.length === 1 ? '' : 's'} · ${genre.artists.length} artist${genre.artists.length === 1 ? '' : 's'}`,
+                    type: 'album',
+                    coverUrl: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=400',
+                    onClick: () => navigate(`/genre/${genre.id}`),
+                    onPlayClick: (e) => {
+                        e.stopPropagation();
+                        const genreTracks = genre.tracks
+                            .map((trackId) => localTracks.find((t) => t.id === trackId))
+                            .filter((t) => !!t);
+                        if (genreTracks.length > 0) {
+                            playTrack(genreTracks[0], genreTracks);
+                        }
+                    },
+                })))), 
     // PLAYLISTS TAB
     activeTab === 'playlists' &&
         (processedPlaylists.length === 0
@@ -345,6 +641,55 @@ export function Library() {
                         className: `p-1.5 rounded-full cursor-pointer hover:bg-white/10 ${isPinned ? 'text-glorify-accent' : 'text-glorify-text-muted hover:text-glorify-text-primary opacity-0 group-hover:opacity-100 transition-opacity'}`
                     }, React.createElement(Pin, { className: `w-3.5 h-3.5 ${isPinned ? 'fill-currentColor' : ''}` })));
                 })))), 
+    // SMART COLLECTIONS TAB
+    activeTab === 'collections' &&
+        React.createElement('div', { style: gridStyles, className: 'grid gap-ch-6' }, processedCollections.length === 0
+            ? React.createElement('div', { className: 'col-span-full text-center py-16 text-sm text-glorify-text-muted font-light' }, 'No smart collections found matching search.')
+            : processedCollections.map((collection) => {
+                const trackCount = collection.tracks.length;
+                const handlePlayCollection = (e) => {
+                    e.stopPropagation();
+                    if (collection.tracks.length > 0) {
+                        playTrack(collection.tracks[0], collection.tracks);
+                    }
+                };
+                const handleShuffleCollection = (e) => {
+                    e.stopPropagation();
+                    if (collection.tracks.length > 0) {
+                        setQueue(collection.tracks);
+                        if (!isShuffle) {
+                            toggleShuffle();
+                        }
+                        const randomIndex = Math.floor(Math.random() * collection.tracks.length);
+                        playTrack(collection.tracks[randomIndex], collection.tracks);
+                    }
+                };
+                const firstTrackWithCover = collection.tracks.find(t => t.coverImage && !t.coverImage.includes('photo-1614613535308-eb5fbd3d2c17'));
+                const coverUrl = firstTrackWithCover ? firstTrackWithCover.coverImage : undefined;
+                return React.createElement('div', {
+                    key: collection.id,
+                    onClick: () => navigate(`/collection/${collection.id}`),
+                    className: 'group p-ch-4 rounded-[22px] card-warm-gradient hover-lift transition-all duration-300 cursor-pointer flex flex-col gap-ch-4 focus-ring select-none shadow-sm text-left font-sans',
+                }, React.createElement('div', {
+                    className: 'w-full aspect-square relative overflow-hidden rounded-[20px] bg-glorify-bg-secondary/60 flex items-center justify-center',
+                }, coverUrl
+                    ? React.createElement('img', {
+                        src: coverUrl,
+                        alt: collection.name,
+                        className: 'w-full h-full object-cover transition-transform duration-500 group-hover:scale-110',
+                    })
+                    : React.createElement('div', { className: `w-full h-full bg-gradient-to-br ${collection.gradient} flex flex-col items-center justify-center gap-2 p-4 text-center` }, React.createElement(collection.icon, { className: 'w-10 h-10 text-white/90 drop-shadow-md' })), React.createElement('div', {
+                    className: 'absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-3 z-10'
+                }, trackCount > 0 && React.createElement('button', {
+                    onClick: handlePlayCollection,
+                    className: 'w-10 h-10 rounded-full bg-glorify-accent text-glorify-carbon-950 flex items-center justify-center shadow-md hover:scale-110 transition-transform cursor-pointer outline-none focus-ring',
+                    title: 'Play collection'
+                }, React.createElement(Play, { className: 'w-4 h-4 fill-currentColor pl-0.5' })), trackCount > 0 && React.createElement('button', {
+                    onClick: handleShuffleCollection,
+                    className: 'w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center shadow-md hover:scale-110 transition-transform cursor-pointer outline-none focus-ring',
+                    title: 'Shuffle play'
+                }, React.createElement(Shuffle, { className: 'w-4 h-4' })))), React.createElement('div', { className: 'px-ch-1' }, React.createElement('h3', { className: 'text-sm font-semibold text-glorify-text-primary truncate mb-0.5' }, collection.name), React.createElement('p', { className: 'text-xs text-glorify-text-muted truncate mb-2' }, collection.description), React.createElement('div', { className: 'text-[10px] uppercase tracking-wider text-glorify-accent font-bold' }, `${trackCount} song${trackCount === 1 ? '' : 's'}`)));
+            })), 
     // LIKES TAB
     activeTab === 'liked' &&
         (favoritedTracks.length === 0 && processedAlbums.length === 0 && processedArtists.length === 0
@@ -421,6 +766,29 @@ export function Library() {
     showCreateDialog &&
         React.createElement(PlaylistDialog, {
             onClose: () => setShowCreateDialog(false),
+        }), 
+    // Floating bulk actions bar
+    selectionMode && selectedTrackIds.length > 0 &&
+        React.createElement('div', { className: 'fixed bottom-24 left-1/2 -translate-x-1/2 z-40 bg-glorify-bg-surface/95 border border-glorify-border-primary/20 backdrop-blur-md rounded-2xl px-6 py-4 shadow-2xl flex items-center justify-between gap-8 text-xs font-bold text-glorify-text-primary min-w-[320px] pointer-events-auto' }, React.createElement('span', null, `${selectedTrackIds.length} tracks selected`), React.createElement('div', { className: 'flex items-center gap-3' }, React.createElement('button', {
+            onClick: () => {
+                setSelectionMode(false);
+                setSelectedTrackIds([]);
+            },
+            className: 'px-3 py-1.5 hover:bg-white/5 rounded-full text-glorify-text-secondary cursor-pointer'
+        }, 'Cancel'), React.createElement('button', {
+            onClick: () => setShowBulkEditModal(true),
+            className: 'px-4 py-1.5 bg-glorify-accent text-glorify-carbon-950 rounded-full hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer'
+        }, 'Edit Metadata'))), 
+    // Bulk Metadata Editor Modal
+    showBulkEditModal &&
+        React.createElement(MetadataEditorModal, {
+            mode: 'bulk',
+            trackIds: selectedTrackIds,
+            onClose: () => {
+                setShowBulkEditModal(false);
+                setSelectionMode(false);
+                setSelectedTrackIds([]);
+            }
         }));
 }
 //# sourceMappingURL=Library.js.map

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from '@chotify/ui';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
-  Home, Search, Library, Heart, Download, Sparkles, Settings, 
+  Home, Search, Library, Heart, Download, Sparkles, Settings, Bell,
   ChevronLeft, ChevronRight, User, Menu, X 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -46,6 +46,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
 
   const secondaryItems = [
     { name: 'Glorify Labs', path: '/studio', icon: Sparkles },
+    { name: 'Notifications', path: '/notifications', icon: Bell },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 

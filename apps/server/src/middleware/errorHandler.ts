@@ -14,7 +14,11 @@ export function errorHandler(
 
   if (err instanceof APIError) {
     logger.warn({ err, requestId }, `API Error: ${err.message}`);
-    res.status(err.status).json(err.toJSON());
+    res.status(err.status).json({
+      success: false,
+      message: err.message,
+      errors: []
+    });
     return;
   }
 
@@ -22,9 +26,8 @@ export function errorHandler(
   logger.error({ err, requestId }, `Unhandled Error: ${err.message}`);
   
   res.status(500).json({
-    type: 'https://glorify.com/errors/internal',
-    title: 'Internal Server Error',
-    status: 500,
-    detail: 'An unexpected database or application error occurred.',
+    success: false,
+    message: 'An unexpected database or application error occurred.',
+    errors: [err.message]
   });
 }

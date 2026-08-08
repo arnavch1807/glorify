@@ -34,7 +34,7 @@ export const TrackCard = React.memo(function TrackCard({
     startDownloadTrack
   } = usePlayerStore();
   
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; triggerRect?: DOMRect } | null>(null);
 
   const isCurrent = currentTrack?.id === track.id;
   const isLiked = favoritedTrackIds.includes(track.id);
@@ -69,7 +69,8 @@ export const TrackCard = React.memo(function TrackCard({
 
   const handleOptionsClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY });
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setContextMenu({ x: e.clientX, y: e.clientY, triggerRect: rect });
   };
 
   return React.createElement(
@@ -245,6 +246,7 @@ export const TrackCard = React.memo(function TrackCard({
         track: track,
         x: contextMenu.x,
         y: contextMenu.y,
+        triggerRect: contextMenu.triggerRect,
         onClose: () => setContextMenu(null),
         onGoToAlbum: onGoToAlbum,
         onGoToArtist: onGoToArtist,

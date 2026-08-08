@@ -35,7 +35,8 @@ export const TrackCard = React.memo(function TrackCard({ track, index, queueCont
     };
     const handleOptionsClick = (e) => {
         e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY });
+        const rect = e.currentTarget.getBoundingClientRect();
+        setContextMenu({ x: e.clientX, y: e.clientY, triggerRect: rect });
     };
     return React.createElement('div', {
         onDoubleClick: () => playTrack(track, queueContext),
@@ -109,6 +110,7 @@ export const TrackCard = React.memo(function TrackCard({ track, index, queueCont
             track: track,
             x: contextMenu.x,
             y: contextMenu.y,
+            triggerRect: contextMenu.triggerRect,
             onClose: () => setContextMenu(null),
             onGoToAlbum: onGoToAlbum,
             onGoToArtist: onGoToArtist,

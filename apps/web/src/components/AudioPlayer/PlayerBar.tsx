@@ -3,9 +3,10 @@ import { usePlayerStore } from '../../store/playerStore.js';
 import { formatDuration } from '@chotify/utils';
 import { 
   Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Shuffle, 
-  Repeat, Heart, ListMusic, FileText, Smartphone, Settings, Maximize2 
+  Repeat, Heart, ListMusic, FileText, Smartphone, Settings, Maximize2, MoreHorizontal 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { TrackContextMenu } from './TrackContextMenu.js';
 
 export function PlayerBar({ isCollapsed = false, isDesktop = true }: { isCollapsed?: boolean; isDesktop?: boolean }) {
   const {
@@ -31,6 +32,8 @@ export function PlayerBar({ isCollapsed = false, isDesktop = true }: { isCollaps
     toggleFavoriteTrack,
     downloadedTrackIds
   } = usePlayerStore();
+
+  const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number; triggerRect?: DOMRect } | null>(null);
 
   if (!currentTrack) return null;
 
@@ -168,6 +171,21 @@ export function PlayerBar({ isCollapsed = false, isDesktop = true }: { isCollaps
           className: 'w-ch-4.5 h-ch-4.5',
           fill: isLiked ? 'currentColor' : 'none' 
         })
+      ),
+      React.createElement(
+        motion.button,
+        {
+          whileHover: { scale: 1.15 },
+          whileTap: { scale: 0.9 },
+          onClick: (e: any) => {
+            stopPropagation(e);
+            const rect = e.currentTarget.getBoundingClientRect();
+            setContextMenu({ x: e.clientX, y: e.clientY, triggerRect: rect });
+          },
+          className: 'p-2 rounded-full hover:bg-glorify-bg-secondary/60 text-glorify-text-muted hover:text-glorify-text-primary outline-none focus-ring cursor-pointer transition-colors flex-shrink-0',
+          'aria-label': 'More options',
+        },
+        React.createElement(MoreHorizontal, { className: 'w-ch-4.5 h-ch-4.5' })
       )
     ),
 
@@ -420,6 +438,14 @@ export function PlayerBar({ isCollapsed = false, isDesktop = true }: { isCollaps
         },
         React.createElement(Maximize2, { className: 'w-ch-4.5 h-ch-4.5' })
       )
-    )
+    ),
+    contextMenu &&
+      React.createElement(TrackContextMenu, {
+        track: currentTrack,
+        x: contextMenu.x,
+        y: contextMenu.y,
+        triggerRect: contextMenu.triggerRect,
+        onClose: () => setContextMenu(null),
+      })
   );
 }

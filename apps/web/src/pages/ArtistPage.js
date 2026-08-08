@@ -4,9 +4,36 @@ import { StaticMusicRepository } from '../repositories/musicRepository.js';
 import { TrackCard } from '../components/Library/TrackCard.js';
 import { CatalogCard } from '../components/Library/CatalogCard.js';
 import { usePlayerStore } from '../store/playerStore.js';
+import { useLocalLibraryStore } from '../store/localLibraryStore.js';
 import { ArtistPageSkeleton } from '../components/SkeletonLoaders.js';
 import { Play, Shuffle, Users, ArrowLeft, Info } from 'lucide-react';
 import { motion } from 'framer-motion';
+function sortArtistTracks(a, b) {
+    const albumA = a.album || '';
+    const albumB = b.album || '';
+    if (albumA !== albumB) {
+        return albumA.localeCompare(albumB);
+    }
+    const discA = a.discNumber ?? 1;
+    const discB = b.discNumber ?? 1;
+    if (discA !== discB) {
+        return discA - discB;
+    }
+    const hasA = a.trackNumber !== undefined && a.trackNumber !== null;
+    const hasB = b.trackNumber !== undefined && b.trackNumber !== null;
+    if (hasA && hasB) {
+        if (a.trackNumber !== b.trackNumber) {
+            return a.trackNumber - b.trackNumber;
+        }
+    }
+    else if (hasA && !hasB) {
+        return -1;
+    }
+    else if (!hasA && hasB) {
+        return 1;
+    }
+    return (a.title || '').localeCompare(b.title || '');
+}
 export function ArtistPage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -14,10 +41,31 @@ export function ArtistPage() {
     const [allArtists, setAllArtists] = useState([]);
     const [allAlbums, setAllAlbums] = useState([]);
     const [loading, setLoading] = useState(true);
-    const { playTrack, setQueue, toggleShuffle, favoritedArtistIds, toggleFavoriteArtist } = usePlayerStore();
+    const { playTrack, setQueue, toggleShuffle, favoritedArtistIds, toggleFavoriteArtist, totalPlays } = usePlayerStore();
+    const { localTracks, localAlbums, localArtists } = useLocalLibraryStore();
     useEffect(() => {
         if (!id)
             return;
+        if (id.startsWith('local_artist_')) {
+            const art = localArtists.find((a) => a.id === id);
+            if (art) {
+                const artistTracks = localTracks.filter((t) => art.tracks?.includes(t.id));
+                // Deterministic sort
+                artistTracks.sort(sortArtistTracks);
+                const artistAlbums = localAlbums.filter((al) => art.albums?.includes(al.id));
+                const artistSingles = localAlbums.filter((al) => art.singles?.includes(al.id));
+                const artistAppearsOn = localAlbums.filter((al) => art.appearsOn?.includes(al.id));
+                setArtistData({
+                    artist: art,
+                    tracks: artistTracks,
+                    albums: artistAlbums,
+                    singles: artistSingles,
+                    appearsOn: artistAppearsOn,
+                });
+            }
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         Promise.all([
             StaticMusicRepository.getArtistDetails(id),
@@ -33,12 +81,31 @@ export function ArtistPage() {
         })
             .catch((err) => console.error('Failed to load artist details:', err))
             .finally(() => setLoading(false));
-    }, [id]);
+    }, [id, localTracks, localAlbums, localArtists]);
     const isFollowing = useMemo(() => {
         if (!id)
             return false;
         return favoritedArtistIds.includes(id);
     }, [favoritedArtistIds, id]);
+    const handlePlayAlbum = (albumId) => {
+        if (albumId.startsWith('local_album_')) {
+            const localAlbum = localAlbums.find(al => al.id === albumId);
+            if (localAlbum && localAlbum.tracks.length > 0) {
+                const albumTracks = localAlbum.tracks
+                    .map(trackId => localTracks.find(t => t.id === trackId))
+                    .filter((t) => !!t);
+                if (albumTracks.length > 0) {
+                    playTrack(albumTracks[0], albumTracks);
+                }
+            }
+            return;
+        }
+        StaticMusicRepository.getAlbumDetails(albumId).then((res) => {
+            if (res && res.tracks.length > 0) {
+                playTrack(res.tracks[0], res.tracks);
+            }
+        });
+    };
     const handlePlayAll = () => {
         if (artistData && artistData.tracks.length > 0) {
             playTrack(artistData.tracks[0], artistData.tracks);
@@ -60,23 +127,48 @@ export function ArtistPage() {
             return [];
         return allArtists.filter(a => a.id !== id);
     }, [allArtists, id]);
-    // Appears On: albums by other artists where this artist name is featured, or other general albums
-    const appearsOnAlbums = useMemo(() => {
+    // Unified local and catalog curation memo
+    const { singles, popularTracks, displayAlbums, displayAppearsOn } = useMemo(() => {
         if (!artistData)
-            return [];
-        return allAlbums.filter(al => al.artistName !== artistData.artist.name).slice(0, 2);
-    }, [allAlbums, artistData]);
+            return { singles: [], popularTracks: [], displayAlbums: [], displayAppearsOn: [] };
+        const { artist, tracks } = artistData;
+        if (id && id.startsWith('local_artist_')) {
+            // Sort popular tracks by local play counts, falling back to deterministic order
+            const popular = [...tracks].sort((a, b) => {
+                const playsA = totalPlays[a.id] || 0;
+                const playsB = totalPlays[b.id] || 0;
+                if (playsB !== playsA) {
+                    return playsB - playsA;
+                }
+                return sortArtistTracks(a, b);
+            }).slice(0, 5);
+            return {
+                singles: artistData.singles || [],
+                popularTracks: popular,
+                displayAlbums: artistData.albums || [],
+                displayAppearsOn: artistData.appearsOn || [],
+            };
+        }
+        // Catalog defaults
+        const popular = tracks.slice(0, 5);
+        const sgl = tracks.filter((t, idx) => idx % 2 === 1);
+        // Appears On: albums by other artists where this artist name is featured, or other general albums
+        const appearsOn = allAlbums.filter(al => al.artistName !== artist.name).slice(0, 2);
+        return {
+            singles: sgl,
+            popularTracks: popular,
+            displayAlbums: artistData.albums,
+            displayAppearsOn: appearsOn,
+        };
+    }, [artistData, id, allAlbums, totalPlays]);
     if (loading) {
         return React.createElement(ArtistPageSkeleton);
     }
     if (!artistData) {
         return React.createElement('div', { className: 'text-center py-16 font-sans' }, React.createElement('h2', { className: 'text-xl font-bold' }, 'Artist Not Found'), React.createElement('button', { onClick: () => navigate(-1), className: 'mt-ch-4 text-xs text-glorify-accent hover:underline' }, 'Go Back'));
     }
-    const { artist, tracks, albums } = artistData;
+    const { artist, tracks } = artistData;
     const mockListeners = (parseInt(artist.id.replace(/\D/g, ''), 10) || 45) * 23145 + 142050;
-    // Curate singles and popular compositions
-    const singles = tracks.filter((t, idx) => idx % 2 === 1);
-    const popularTracks = tracks.slice(0, 5);
     return React.createElement('div', { className: 'w-full flex flex-col gap-10 pb-32 font-sans relative overflow-hidden' }, 
     // Floating dynamic animated mesh gradient background in the artist page
     React.createElement('div', { className: 'absolute inset-0 -z-20 pointer-events-none' }, React.createElement(motion.div, {
@@ -106,7 +198,9 @@ export function ArtistPage() {
         className: 'relative w-full rounded-[28px] overflow-hidden bg-gradient-to-b from-[#1C1B17] via-glorify-bg-surface/90 to-glorify-bg-surface/40 border border-glorify-border-primary/5 p-8 md:p-12 flex flex-col md:flex-row items-center md:items-end gap-6 md:gap-8 justify-between relative shadow-md'
     }, React.createElement('div', { className: 'flex flex-col md:flex-row items-center md:items-end gap-ch-6 text-center md:text-left z-10' }, React.createElement('div', { className: 'w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-2 border-glorify-accent/30 shadow-2xl bg-glorify-carbon-900 flex-shrink-0' }, artist.avatarUrl
         ? React.createElement('img', { src: artist.avatarUrl, alt: artist.name, className: 'w-full h-full object-cover transition-transform duration-700 hover:scale-105' })
-        : React.createElement(Users, { className: 'w-16 h-16 text-glorify-text-muted mt-8' })), React.createElement('div', { className: 'flex flex-col gap-ch-2 mt-ch-4 md:mt-0' }, React.createElement('span', { className: 'text-[10px] font-bold text-glorify-accent tracking-widest uppercase' }, 'VERIFIED ARTIST'), React.createElement('h1', { className: 'text-4xl md:text-6xl font-extrabold tracking-tight text-glorify-text-primary leading-none' }, artist.name), React.createElement('div', { className: 'flex items-center justify-center md:justify-start gap-2 text-xs text-glorify-text-secondary font-medium mt-1' }, React.createElement('span', { className: 'text-glorify-text-primary font-semibold' }, `${mockListeners.toLocaleString()} monthly listeners`), React.createElement('span', null, '•'), React.createElement('span', { className: 'uppercase tracking-widest text-[10px] font-bold text-glorify-accent/80' }, artist.genres.join(' / '))))), 
+        : React.createElement(Users, { className: 'w-16 h-16 text-glorify-text-muted mt-8' })), React.createElement('div', { className: 'flex flex-col gap-ch-2 mt-ch-4 md:mt-0' }, React.createElement('span', { className: 'text-[10px] font-bold text-glorify-accent tracking-widest uppercase' }, id?.startsWith('local_artist_') ? 'LOCAL ARTIST' : 'VERIFIED ARTIST'), React.createElement('h1', { className: 'text-4xl md:text-6xl font-extrabold tracking-tight text-glorify-text-primary leading-none' }, artist.name), React.createElement('div', { className: 'flex items-center justify-center md:justify-start gap-2 text-xs text-glorify-text-secondary font-medium mt-1' }, !id?.startsWith('local_artist_')
+        ? React.createElement('span', { className: 'text-glorify-text-primary font-semibold' }, `${mockListeners.toLocaleString()} monthly listeners`)
+        : React.createElement('span', { className: 'text-glorify-text-primary font-semibold' }, `${tracks.length} track${tracks.length === 1 ? '' : 's'} · ${displayAlbums.length + (singles?.length || 0)} release${(displayAlbums.length + (singles?.length || 0)) === 1 ? '' : 's'}`), React.createElement('span', null, '•'), React.createElement('span', { className: 'uppercase tracking-widest text-[10px] font-bold text-glorify-accent/80' }, artist.genres.join(' / '))))), 
     // Background image mesh blur
     artist.avatarUrl &&
         React.createElement('div', {
@@ -147,8 +241,8 @@ export function ArtistPage() {
     // Right: About biography
     React.createElement('div', { className: 'lg:col-span-1 flex flex-col gap-ch-4' }, React.createElement('div', { className: 'flex items-center gap-2 pl-ch-1 text-glorify-text-primary' }, React.createElement(Info, { className: 'w-4 h-4 text-glorify-accent' }), React.createElement('h2', { className: 'text-lg font-bold' }, 'Biography')), React.createElement('div', { className: 'p-ch-6 rounded-[24px] bg-glorify-bg-surface/30 border border-glorify-border-primary/10 shadow-sm leading-relaxed text-xs text-glorify-text-secondary' }, React.createElement('p', null, artist.bio || 'No verified biography loaded for this artist catalog entry.')))), 
     // Albums Section
-    albums.length > 0 &&
-        React.createElement('div', { className: 'flex flex-col gap-ch-4 z-10' }, React.createElement('h2', { className: 'text-lg font-bold text-glorify-text-primary pl-ch-1' }, 'Albums'), React.createElement('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-ch-6' }, albums.map((album) => React.createElement(CatalogCard, {
+    displayAlbums.length > 0 &&
+        React.createElement('div', { className: 'flex flex-col gap-ch-4 z-10' }, React.createElement('h2', { className: 'text-lg font-bold text-glorify-text-primary pl-ch-1' }, 'Albums'), React.createElement('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-ch-6' }, displayAlbums.map((album) => React.createElement(CatalogCard, {
             key: album.id,
             id: album.id,
             title: album.title,
@@ -158,43 +252,71 @@ export function ArtistPage() {
             onClick: () => navigate(`/album/${album.id}`),
             onPlayClick: (e) => {
                 e.stopPropagation();
-                StaticMusicRepository.getAlbumDetails(album.id).then((res) => {
-                    if (res && res.tracks.length > 0)
-                        playTrack(res.tracks[0], res.tracks);
-                });
+                if (album.id.startsWith('local_album_')) {
+                    handlePlayAlbum(album.id);
+                }
+                else {
+                    StaticMusicRepository.getAlbumDetails(album.id).then((res) => {
+                        if (res && res.tracks.length > 0)
+                            playTrack(res.tracks[0], res.tracks);
+                    });
+                }
             }
         })))), 
     // Singles Section
     singles.length > 0 &&
-        React.createElement('div', { className: 'flex flex-col gap-ch-4 z-10' }, React.createElement('h2', { className: 'text-lg font-bold text-glorify-text-primary pl-ch-1' }, 'Singles & EPs'), React.createElement('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-ch-6' }, singles.map((track) => React.createElement(CatalogCard, {
-            key: 'single-' + track.id,
-            id: track.id,
-            title: track.title,
-            subtitle: 'Single EP',
-            type: 'album',
-            coverUrl: track.coverImage,
-            onClick: () => playTrack(track, tracks),
-            onPlayClick: (e) => {
-                e.stopPropagation();
-                playTrack(track, tracks);
-            }
-        })))), 
+        React.createElement('div', { className: 'flex flex-col gap-ch-4 z-10' }, React.createElement('h2', { className: 'text-lg font-bold text-glorify-text-primary pl-ch-1' }, 'Singles & EPs'), React.createElement('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-ch-6' }, singles.map((item) => {
+            const isAlbum = 'coverUrl' in item;
+            const title = isAlbum ? item.title : item.title;
+            const itemKey = isAlbum ? item.id : item.id;
+            const coverUrl = isAlbum ? item.coverUrl : item.coverImage;
+            return React.createElement(CatalogCard, {
+                key: 'single-' + itemKey,
+                id: itemKey,
+                title: title,
+                subtitle: 'Single EP',
+                type: 'album',
+                coverUrl: coverUrl,
+                onClick: () => {
+                    if (isAlbum) {
+                        navigate(`/album/${itemKey}`);
+                    }
+                    else {
+                        playTrack(item, tracks);
+                    }
+                },
+                onPlayClick: (e) => {
+                    e.stopPropagation();
+                    if (isAlbum) {
+                        handlePlayAlbum(itemKey);
+                    }
+                    else {
+                        playTrack(item, tracks);
+                    }
+                }
+            });
+        }))), 
     // Appears On Section (Collabs & Features)
-    appearsOnAlbums.length > 0 &&
-        React.createElement('div', { className: 'flex flex-col gap-ch-4 z-10' }, React.createElement('h2', { className: 'text-lg font-bold text-glorify-text-primary pl-ch-1' }, 'Appears On'), React.createElement('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-ch-6' }, appearsOnAlbums.map((album) => React.createElement(CatalogCard, {
+    displayAppearsOn.length > 0 &&
+        React.createElement('div', { className: 'flex flex-col gap-ch-4 z-10' }, React.createElement('h2', { className: 'text-lg font-bold text-glorify-text-primary pl-ch-1' }, 'Appears On'), React.createElement('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-ch-6' }, displayAppearsOn.map((album) => React.createElement(CatalogCard, {
             key: 'appears-' + album.id,
             id: album.id,
             title: album.title,
-            subtitle: `Featured on ${album.title}`,
+            subtitle: `${album.artistName || 'Various Artists'} • Album`,
             type: 'album',
             coverUrl: album.coverUrl,
             onClick: () => navigate(`/album/${album.id}`),
             onPlayClick: (e) => {
                 e.stopPropagation();
-                StaticMusicRepository.getAlbumDetails(album.id).then((res) => {
-                    if (res && res.tracks.length > 0)
-                        playTrack(res.tracks[0], res.tracks);
-                });
+                if (album.id.startsWith('local_album_')) {
+                    handlePlayAlbum(album.id);
+                }
+                else {
+                    StaticMusicRepository.getAlbumDetails(album.id).then((res) => {
+                        if (res && res.tracks.length > 0)
+                            playTrack(res.tracks[0], res.tracks);
+                    });
+                }
             }
         })))), 
     // Similar Artists Section

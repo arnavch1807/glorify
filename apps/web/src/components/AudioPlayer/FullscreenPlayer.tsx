@@ -5,11 +5,14 @@ import { formatDuration } from '@chotify/utils';
 import { 
   X, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Shuffle, 
   Repeat, Heart, Share2, Smartphone, ListMusic, FileText, Disc, 
-  Settings as SettingsIcon, Sliders, Moon, Trash2 
+  Settings as SettingsIcon, Sliders, Moon, Trash2, Pencil, AlignLeft, MoreHorizontal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { NoQueue } from '../EmptyStates.js';
 import { AudioVisualizer } from './AudioVisualizer.js';
+import { parseLrc } from '../../utils/lrcParser.js';
+import { LyricsEditorModal } from '../Library/LyricsEditorModal.js';
+import { TrackContextMenu } from './TrackContextMenu.js';
 
 // Dynamic color configurations mapped to cover metadata
 const trackColors: Record<string, { accent: string; glow: string }> = {
@@ -64,6 +67,7 @@ export function FullscreenPlayer() {
   } = usePlayerStore();
 
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; triggerRect?: DOMRect } | null>(null);
   const accentColor = (currentTrack && trackColors[currentTrack.id]) ? trackColors[currentTrack.id].accent : '#D4AF37';
   const [scrubTime, setScrubTime] = useState(0);
 
@@ -109,16 +113,46 @@ export function FullscreenPlayer() {
     }
   };
 
-  const mockLyrics = [
-    { time: 0, text: '[ Instrument Introduction ]' },
-    { time: 10, text: 'Dusty keys on a record track' },
-    { time: 24, text: 'Composer lines that pull us back' },
-    { time: 38, text: 'Aura gold that lights the room' },
-    { time: 52, text: 'Warm acoustic patterns in the gloom' },
-    { time: 70, text: '[ Synth Solo Bridge ]' },
-    { time: 92, text: 'Sand canvases and carbon keys' },
-    { time: 108, text: 'Floating soundwaves in the breeze' },
-  ];
+  const [isAutoScrollSuspended, setIsAutoScrollSuspended] = useState(false);
+  const [showLyricsEditModal, setShowLyricsEditModal] = useState(false);
+
+  const parsedLyrics = useMemo(() => {
+    if (!currentTrack || !currentTrack.lyrics) return null;
+    const lyr = currentTrack.lyrics;
+    if (typeof lyr === 'string') {
+      if (/\[\d+:\d+(?:[.:]\d+)?\]/.test(lyr)) {
+        return {
+          type: 'synced' as const,
+          lines: parseLrc(lyr),
+          text: lyr
+        };
+      }
+      return {
+        type: 'plain' as const,
+        text: lyr
+      };
+    }
+    return lyr;
+  }, [currentTrack]);
+
+  const activeLineIndex = useMemo(() => {
+    if (!parsedLyrics || parsedLyrics.type !== 'synced' || !parsedLyrics.lines || parsedLyrics.lines.length === 0) {
+      return -1;
+    }
+    const timeMs = (isScrubbing ? scrubTime : currentTime) * 1000;
+    let activeIdx = 0;
+    const lines = parsedLyrics.lines;
+    for (let i = 0; i < lines.length; i++) {
+      if (timeMs >= lines[i].time) {
+        activeIdx = i;
+      }
+    }
+    return activeIdx;
+  }, [currentTime, scrubTime, isScrubbing, parsedLyrics]);
+
+  useEffect(() => {
+    setIsAutoScrollSuspended(false);
+  }, [currentTrack?.id]);
 
   const formatSleepTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -126,27 +160,16 @@ export function FullscreenPlayer() {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const activeLineIndex = useMemo(() => {
-    const time = isScrubbing ? scrubTime : currentTime;
-    let activeIdx = 0;
-    for (let i = 0; i < mockLyrics.length; i++) {
-      if (time >= mockLyrics[i].time) {
-        activeIdx = i;
-      }
-    }
-    return activeIdx;
-  }, [currentTime, scrubTime, isScrubbing]);
-
   const activeLyricRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (activeLyricRef.current && activePlayerTab === 'lyrics') {
+    if (activeLyricRef.current && activePlayerTab === 'lyrics' && !isAutoScrollSuspended) {
       activeLyricRef.current.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
       });
     }
-  }, [activeLineIndex, activePlayerTab]);
+  }, [activeLineIndex, activePlayerTab, isAutoScrollSuspended]);
 
   useEffect(() => {
     if (isFullscreen) {
@@ -499,6 +522,18 @@ export function FullscreenPlayer() {
                   title: isLiked ? 'Remove from favorites' : 'Add to favorites'
                 }, React.createElement(Heart, { className: 'w-5 h-5', fill: isLiked ? 'currentColor' : 'none' })),
 
+                // More options
+                React.createElement(motion.button, {
+                  whileHover: { scale: 1.15 },
+                  whileTap: { scale: 0.9 },
+                  onClick: (e: any) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setContextMenu({ x: e.clientX, y: e.clientY, triggerRect: rect });
+                  },
+                  className: 'p-2 rounded-full text-glorify-text-secondary hover:text-glorify-copper cursor-pointer transition-all',
+                  title: 'More options'
+                }, React.createElement(MoreHorizontal, { className: 'w-5 h-5' })),
+
                 // Volume slider
                 React.createElement(
                   'div',
@@ -546,33 +581,92 @@ export function FullscreenPlayer() {
               )
             ),
 
-          // LYRICS VIEW (Smooth synched scroll view)
+          // LYRICS VIEW
           activePlayerTab === 'lyrics' &&
             React.createElement(
-              motion.div,
-              {
-                variants: listVariants,
-                initial: 'hidden',
-                animate: 'show',
-                className: 'max-w-3xl w-full h-[65vh] overflow-y-auto px-4 flex flex-col gap-8 py-44 scrollbar-none scroll-smooth text-center md:text-left'
-              },
-              mockLyrics.map((line, idx) => {
-                const isActive = idx === activeLineIndex;
-                return React.createElement(
-                  motion.div,
+              'div',
+              { className: 'relative max-w-3xl w-full h-[65vh] flex flex-col items-center z-10' },
+              
+              // Floating Edit Lyrics Button (Local tracks only)
+              currentTrack.source === 'local' &&
+                React.createElement(
+                  'button',
                   {
-                    key: line.time,
-                    ref: isActive ? activeLyricRef : null,
-                    variants: lyricItemVariants,
-                    className: `transition-all duration-500 cursor-default py-2 ${
-                      isActive
-                        ? 'text-white text-[32px] sm:text-[40px] md:text-[52px] font-extrabold leading-tight drop-shadow-md opacity-100 scale-102'
-                        : 'text-glorify-text-muted text-xl sm:text-2xl font-bold opacity-25 hover:opacity-50'
-                    }`,
+                    onClick: () => setShowLyricsEditModal(true),
+                    className: 'absolute top-0 right-4 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-full text-xs font-bold transition-all flex items-center gap-1.5 shadow-md cursor-pointer border border-white/10 z-20'
                   },
-                  line.text
-                );
-              })
+                  React.createElement(Pencil, { className: 'w-3.5 h-3.5' }),
+                  'Edit Lyrics'
+                ),
+
+              // Lyrics content container
+              !parsedLyrics
+                ? React.createElement(
+                    'div',
+                    { className: 'flex flex-col items-center justify-center h-full text-center gap-4 py-20' },
+                    React.createElement(AlignLeft, { className: 'w-12 h-12 text-glorify-text-muted/40' }),
+                    React.createElement('span', { className: 'text-base font-semibold text-glorify-text-secondary' }, 'No lyrics available'),
+                    currentTrack.source === 'local' &&
+                      React.createElement(
+                        'button',
+                        {
+                          onClick: () => setShowLyricsEditModal(true),
+                          className: 'px-5 py-2 bg-glorify-accent text-glorify-carbon-950 rounded-full text-xs font-bold hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer'
+                        },
+                        'Add Lyrics'
+                      )
+                  )
+                : parsedLyrics.type === 'plain'
+                ? React.createElement(
+                    'div',
+                    { className: 'w-full h-full overflow-y-auto px-6 text-center text-xl md:text-2xl font-bold leading-loose text-glorify-text-primary/90 whitespace-pre-wrap py-24 scrollbar-none' },
+                    parsedLyrics.text
+                  )
+                : React.createElement(
+                    'div',
+                    {
+                      onWheel: () => setIsAutoScrollSuspended(true),
+                      onTouchMove: () => setIsAutoScrollSuspended(true),
+                      className: 'w-full h-full overflow-y-auto px-4 flex flex-col gap-7 py-44 scrollbar-none scroll-smooth text-center md:text-left relative'
+                    },
+                    parsedLyrics.lines?.map((line, idx) => {
+                      const isActive = idx === activeLineIndex;
+                      return React.createElement(
+                        motion.div,
+                        {
+                          key: line.time + '-' + idx,
+                          ref: isActive ? activeLyricRef : null,
+                          onClick: () => seek(line.time / 1000),
+                          className: `transition-all duration-300 cursor-pointer py-2 select-none ${
+                            isActive
+                              ? 'text-white text-[30px] sm:text-[38px] md:text-[46px] font-extrabold leading-tight drop-shadow-md opacity-100 scale-102 text-glorify-accent'
+                              : 'text-glorify-text-muted text-lg sm:text-xl md:text-2xl font-bold opacity-30 hover:opacity-65'
+                          }`
+                        },
+                        line.text || '• • •'
+                      );
+                    }),
+                    
+                    // Resume Auto-scroll control overlay
+                    isAutoScrollSuspended &&
+                      React.createElement(
+                        'button',
+                        {
+                          onClick: () => {
+                            setIsAutoScrollSuspended(false);
+                            if (activeLyricRef.current) {
+                              activeLyricRef.current.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'center'
+                              });
+                            }
+                          },
+                          className: 'fixed bottom-28 left-1/2 -translate-x-1/2 px-5 py-2.5 bg-glorify-accent text-glorify-carbon-950 font-bold rounded-full text-xs hover:scale-105 active:scale-95 transition-all shadow-xl cursor-pointer z-30 flex items-center gap-1.5'
+                        },
+                        React.createElement(AlignLeft, { className: 'w-3.5 h-3.5' }),
+                        'Jump to current line'
+                      )
+                  )
             ),
 
           // QUEUE VIEW (Slides in from the right, no border)
@@ -804,9 +898,22 @@ export function FullscreenPlayer() {
                     )
                   )
                 )
-              )
-          )
         )
-      )
-  );
+      ),
+      showLyricsEditModal &&
+        React.createElement(LyricsEditorModal, {
+          trackId: currentTrack.id,
+          onClose: () => setShowLyricsEditModal(false),
+        }),
+      contextMenu &&
+        React.createElement(TrackContextMenu, {
+          track: currentTrack,
+          x: contextMenu.x,
+          y: contextMenu.y,
+          triggerRect: contextMenu.triggerRect,
+          onClose: () => setContextMenu(null),
+        })
+    )
+  )
+);
 }

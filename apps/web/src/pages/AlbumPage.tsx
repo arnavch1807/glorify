@@ -4,8 +4,10 @@ import { StaticMusicRepository } from '../repositories/musicRepository.js';
 import { Track, Album, Artist } from '@chotify/types';
 import { TrackCard } from '../components/Library/TrackCard.js';
 import { usePlayerStore } from '../store/playerStore.js';
+import { useLocalLibraryStore } from '../store/localLibraryStore.js';
+import { MetadataEditorModal } from '../components/Library/MetadataEditorModal.js';
 import { AlbumPageSkeleton } from '../components/SkeletonLoaders.js';
-import { Play, Shuffle, Heart, Disc, ArrowLeft, Clock, Calendar, Users } from 'lucide-react';
+import { Play, Shuffle, Heart, Disc, ArrowLeft, Clock, Calendar, Users, Pencil } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export function AlbumPage() {
@@ -14,6 +16,9 @@ export function AlbumPage() {
   const [albumData, setAlbumData] = useState<{ album: Album; tracks: Track[] } | null>(null);
   const [artistAvatar, setArtistAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showEditModal, setShowEditModal] = useState(false);
+
+  const { localTracks, localAlbums } = useLocalLibraryStore();
 
   const {
     playTrack,
@@ -25,6 +30,22 @@ export function AlbumPage() {
 
   useEffect(() => {
     if (!id) return;
+    
+    if (id.startsWith('local_album_')) {
+      const alb = localAlbums.find((a) => a.id === id);
+      if (alb) {
+        const albumTracks = alb.tracks
+          .map((trackId) => localTracks.find((t) => t.id === trackId))
+          .filter((t): t is Track => !!t);
+        setAlbumData({
+          album: alb,
+          tracks: albumTracks
+        });
+      }
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     StaticMusicRepository.getAlbumDetails(id)
       .then((res) => {
@@ -41,7 +62,22 @@ export function AlbumPage() {
       })
       .catch((err) => console.error('Failed to load album details:', err))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, localTracks, localAlbums]);
+
+  useEffect(() => {
+    // Redirect if the album ID has changed (e.g. from editing album name or artist)
+    if (id && id.startsWith('local_album_') && localAlbums.length > 0 && albumData) {
+      const albExists = localAlbums.some((a) => a.id === id);
+      if (!albExists && albumData.tracks.length > 0) {
+        // Find the new album ID that contains the first track of this album
+        const firstTrackId = albumData.tracks[0].id;
+        const newAlb = localAlbums.find((a) => a.tracks.includes(firstTrackId));
+        if (newAlb) {
+          navigate(`/album/${newAlb.id}`, { replace: true });
+        }
+      }
+    }
+  }, [id, localAlbums, albumData, navigate]);
 
   const isLiked = useMemo(() => {
     if (!id) return false;
@@ -51,6 +87,20 @@ export function AlbumPage() {
   const totalDuration = useMemo(() => {
     if (!albumData) return 0;
     return albumData.tracks.reduce((acc, t) => acc + t.duration, 0);
+  }, [albumData]);
+
+  // Group tracks by disc number for multi-disc display
+  const tracksByDisc = useMemo(() => {
+    if (!albumData) return new Map<number, Track[]>();
+    const map = new Map<number, Track[]>();
+    for (const track of albumData.tracks) {
+      const disc = track.discNumber || 1;
+      if (!map.has(disc)) {
+        map.set(disc, []);
+      }
+      map.get(disc)!.push(track);
+    }
+    return new Map([...map.entries()].sort((a, b) => a[0] - b[0]));
   }, [albumData]);
 
   const formatTotalTime = (secs: number) => {
@@ -155,9 +205,16 @@ export function AlbumPage() {
             'div',
             { className: 'flex items-center gap-1.5' },
             artistAvatar
-              ? React.createElement('img', { src: artistAvatar, alt: album.artistName, className: 'w-5 h-5 rounded-full object-cover border border-white/10' })
+              ? React.createElement('img', { src: artistAvatar, alt: album.albumArtist || album.artistName, className: 'w-5 h-5 rounded-full object-cover border border-white/10' })
               : React.createElement(Users, { className: 'w-4 h-4 text-glorify-text-muted' }),
-            React.createElement('span', { className: 'text-glorify-text-primary font-semibold hover:underline cursor-pointer' }, album.artistName)
+            React.createElement(
+              'span',
+              {
+                onClick: () => navigate(`/artist/${album.artistId}`),
+                className: 'text-glorify-text-primary font-semibold hover:underline cursor-pointer'
+              },
+              album.albumArtist || album.artistName
+            )
           ),
           React.createElement('span', null, '•'),
           React.createElement('span', { className: 'flex items-center gap-1' }, React.createElement(Calendar, { className: 'w-3.5 h-3.5' }), album.releaseYear),
@@ -206,6 +263,18 @@ export function AlbumPage() {
             },
             React.createElement(Shuffle, { className: 'w-ch-4 h-ch-4' }),
             'Shuffle'
+          ),
+        album.id.startsWith('local_album_') &&
+          React.createElement(
+            motion.button,
+            {
+              onClick: () => setShowEditModal(true),
+              whileHover: { scale: 1.05 },
+              whileTap: { scale: 0.95 },
+              className: 'px-ch-5 py-3 rounded-full bg-glorify-bg-secondary text-glorify-text-primary border border-glorify-border-primary text-xs font-bold flex items-center gap-ch-2 cursor-pointer'
+            },
+            React.createElement(Pencil, { className: 'w-ch-4 h-ch-4' }),
+            'Edit Album'
           )
       ),
 
@@ -232,16 +301,48 @@ export function AlbumPage() {
         { className: 'flex flex-col bg-glorify-bg-surface/20 border border-glorify-border-primary/5 rounded-[24px] p-ch-3 shadow-sm' },
         tracks.length === 0
           ? React.createElement('div', { className: 'text-center py-16 text-sm text-glorify-text-muted' }, 'No songs in this album.')
-          : tracks.map((track, idx) =>
-              React.createElement(TrackCard, {
-                key: track.id,
-                track: track,
-                index: idx,
-                queueContext: tracks,
-                onGoToArtist: (artistId) => navigate(`/artist/${artistId}`),
-              })
+          : (tracksByDisc.size > 1
+              ? Array.from(tracksByDisc.entries()).map(([discNum, discTracks]) =>
+                  React.createElement(
+                    'div',
+                    { key: `disc-${discNum}`, className: 'flex flex-col gap-ch-2 mt-ch-4 first:mt-0 text-left' },
+                    React.createElement(
+                      'div',
+                      { className: 'flex items-center gap-2 px-ch-4 py-2 border-b border-glorify-border-primary/5' },
+                      React.createElement(Disc, { className: 'w-3.5 h-3.5 text-glorify-accent' }),
+                      React.createElement('span', { className: 'text-[10px] font-bold text-glorify-text-muted uppercase tracking-wider' }, `DISC ${discNum}`)
+                    ),
+                    discTracks.map((track) => {
+                      const globalIdx = tracks.findIndex((t) => t.id === track.id);
+                      return React.createElement(TrackCard, {
+                        key: track.id,
+                        track: track,
+                        index: globalIdx !== -1 ? globalIdx : 0,
+                        queueContext: tracks,
+                        onGoToArtist: (artistId) => navigate(`/artist/${artistId}`),
+                      });
+                    })
+                  )
+                )
+              : tracks.map((track, idx) =>
+                  React.createElement(TrackCard, {
+                    key: track.id,
+                    track: track,
+                    index: idx,
+                    queueContext: tracks,
+                    onGoToArtist: (artistId) => navigate(`/artist/${artistId}`),
+                  })
+                )
             )
       )
-    )
+    ),
+
+    showEditModal &&
+      React.createElement(MetadataEditorModal, {
+        mode: 'album',
+        trackIds: album.tracks,
+        albumId: album.id,
+        onClose: () => setShowEditModal(false),
+      })
   );
 }

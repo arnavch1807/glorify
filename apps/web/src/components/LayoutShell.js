@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '@chotify/ui';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, Search, Library, Heart, Download, Sparkles, Settings, ChevronLeft, ChevronRight, User, Menu } from 'lucide-react';
+import { Home, Search, Library, Heart, Download, Sparkles, Settings, Bell, ChevronLeft, ChevronRight, User, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PlayerBar } from './AudioPlayer/PlayerBar.js';
 import { FullscreenPlayer } from './AudioPlayer/FullscreenPlayer.js';
@@ -35,6 +35,7 @@ export function LayoutShell({ children }) {
     ];
     const secondaryItems = [
         { name: 'Glorify Labs', path: '/studio', icon: Sparkles },
+        { name: 'Notifications', path: '/notifications', icon: Bell },
         { name: 'Settings', path: '/settings', icon: Settings },
     ];
     const isLinkActive = (path) => {

@@ -1,3 +1,4 @@
+import { apiClient } from '../utils/apiClient.js';
 // Mock Data Sets
 const mockTracks = [
     {
@@ -11,6 +12,8 @@ const mockTracks = [
         coverImage: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=400&auto=format&fit=crop&q=80',
         isGenerated: true,
         prompt: 'Lofi piano keys with ambient record static clicks and warm sub-bass loops',
+        bpm: 72,
+        keySignature: 'A Min',
     },
     {
         id: 'sample_02',
@@ -23,6 +26,8 @@ const mockTracks = [
         coverImage: 'https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=400&auto=format&fit=crop&q=80',
         isGenerated: true,
         prompt: 'Washed out ambient pads, slow granular cloud textures',
+        bpm: 65,
+        keySignature: 'D Maj',
     },
     {
         id: 'sample_03',
@@ -35,6 +40,8 @@ const mockTracks = [
         coverImage: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=400&auto=format&fit=crop&q=80',
         isGenerated: true,
         prompt: 'Retrowave driving bassline, retro drum machine snaps',
+        bpm: 115,
+        keySignature: 'F# Min',
     },
     {
         id: 'sample_04',
@@ -47,6 +54,8 @@ const mockTracks = [
         coverImage: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&auto=format&fit=crop&q=80',
         isGenerated: true,
         prompt: 'Glitch hop synth stabs, fragmented percussions and bass skips',
+        bpm: 140,
+        keySignature: 'G Maj',
     },
 ];
 const mockArtists = [
@@ -112,7 +121,17 @@ const mockPlaylists = [
 // Static Catalog Repository Implementation
 export const StaticMusicRepository = {
     async getTracks() {
-        return mockTracks;
+        try {
+            const response = await apiClient.get('/api/v1/songs');
+            if (response.data && response.data.success && Array.isArray(response.data.data)) {
+                return response.data.data;
+            }
+            return mockTracks;
+        }
+        catch (err) {
+            console.warn('Failed to fetch songs from backend database, using static fallback:', err);
+            return mockTracks;
+        }
     },
     async getAlbums() {
         return mockAlbums;

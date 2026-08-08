@@ -1,10 +1,12 @@
 import React from 'react';
 import { usePlayerStore } from '../../store/playerStore.js';
 import { formatDuration } from '@chotify/utils';
-import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Shuffle, Repeat, Heart, ListMusic, FileText, Smartphone, Settings, Maximize2 } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Shuffle, Repeat, Heart, ListMusic, FileText, Smartphone, Settings, Maximize2, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { TrackContextMenu } from './TrackContextMenu.js';
 export function PlayerBar({ isCollapsed = false, isDesktop = true }) {
     const { currentTrack, isPlaying, currentTime, duration, volume, isMuted, repeatMode, isShuffle, favoritedTrackIds, togglePlay, seek, setVolume, toggleMute, setRepeatMode, toggleShuffle, skipNext, skipPrevious, setFullscreen, setActivePlayerTab, toggleFavoriteTrack, downloadedTrackIds } = usePlayerStore();
+    const [contextMenu, setContextMenu] = React.useState(null);
     if (!currentTrack)
         return null;
     const isLiked = favoritedTrackIds.includes(currentTrack.id);
@@ -93,7 +95,17 @@ export function PlayerBar({ isCollapsed = false, isDesktop = true }) {
     }, React.createElement(Heart, {
         className: 'w-ch-4.5 h-ch-4.5',
         fill: isLiked ? 'currentColor' : 'none'
-    }))), 
+    })), React.createElement(motion.button, {
+        whileHover: { scale: 1.15 },
+        whileTap: { scale: 0.9 },
+        onClick: (e) => {
+            stopPropagation(e);
+            const rect = e.currentTarget.getBoundingClientRect();
+            setContextMenu({ x: e.clientX, y: e.clientY, triggerRect: rect });
+        },
+        className: 'p-2 rounded-full hover:bg-glorify-bg-secondary/60 text-glorify-text-muted hover:text-glorify-text-primary outline-none focus-ring cursor-pointer transition-colors flex-shrink-0',
+        'aria-label': 'More options',
+    }, React.createElement(MoreHorizontal, { className: 'w-ch-4.5 h-ch-4.5' }))), 
     // Center: Playback controls + Scrubber progress bar
     React.createElement('div', {
         onClick: stopPropagation,
@@ -243,6 +255,13 @@ export function PlayerBar({ isCollapsed = false, isDesktop = true }) {
         className: 'p-1.5 rounded-full hover:bg-glorify-bg-secondary/60 text-glorify-text-muted hover:text-glorify-copper cursor-pointer outline-none focus-ring transition-colors',
         'aria-label': 'Expand full-screen player',
         title: 'Fullscreen',
-    }, React.createElement(Maximize2, { className: 'w-ch-4.5 h-ch-4.5' }))));
+    }, React.createElement(Maximize2, { className: 'w-ch-4.5 h-ch-4.5' }))), contextMenu &&
+        React.createElement(TrackContextMenu, {
+            track: currentTrack,
+            x: contextMenu.x,
+            y: contextMenu.y,
+            triggerRect: contextMenu.triggerRect,
+            onClose: () => setContextMenu(null),
+        }));
 }
 //# sourceMappingURL=PlayerBar.js.map

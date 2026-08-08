@@ -5,7 +5,8 @@ import { TrackCard } from '../components/Library/TrackCard.js';
 import { CatalogCard } from '../components/Library/CatalogCard.js';
 import { useDebounce } from '@chotify/hooks';
 import { usePlayerStore } from '../store/playerStore.js';
-import { Search as SearchIcon, Trash2, ArrowRight, X, Disc, Play } from 'lucide-react';
+import { useLocalLibraryStore } from '../store/localLibraryStore.js';
+import { Search as SearchIcon, Trash2, ArrowRight, X, Disc, Play, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SearchSkeleton } from '../components/SkeletonLoaders.js';
 import { NoSearchResults } from '../components/EmptyStates.js';
@@ -14,6 +15,11 @@ export function Search() {
     const [query, setQuery] = useState('');
     const debouncedQuery = useDebounce(query, 100);
     const [activeCategory, setActiveCategory] = useState('all');
+    // Search Filters State
+    const [showFilters, setShowFilters] = useState(false);
+    const [sourceFilter, setSourceFilter] = useState('all');
+    const [bpmFilter, setBpmFilter] = useState('all');
+    const [keyFilter, setKeyFilter] = useState('all');
     const [tracks, setTracks] = useState([]);
     const [albums, setAlbums] = useState([]);
     const [artists, setArtists] = useState([]);
@@ -23,6 +29,16 @@ export function Search() {
     const [loading, setLoading] = useState(true);
     const { playTrack } = usePlayerStore();
     const searchInputRef = useRef(null);
+    const { localTracks, localAlbums, localArtists } = useLocalLibraryStore();
+    const combinedTracks = useMemo(() => {
+        return [...localTracks, ...tracks];
+    }, [localTracks, tracks]);
+    const combinedAlbums = useMemo(() => {
+        return [...localAlbums, ...albums];
+    }, [localAlbums, albums]);
+    const combinedArtists = useMemo(() => {
+        return [...localArtists, ...artists];
+    }, [localArtists, artists]);
     useEffect(() => {
         const loadCatalog = async () => {
             try {
@@ -62,12 +78,34 @@ export function Search() {
         }
         const searchTerm = debouncedQuery.toLowerCase();
         return {
-            tracks: tracks.filter(t => t.title.toLowerCase().includes(searchTerm) || t.artist.toLowerCase().includes(searchTerm)),
-            albums: albums.filter(al => al.title.toLowerCase().includes(searchTerm) || al.artistName.toLowerCase().includes(searchTerm)),
-            artists: artists.filter(ar => ar.name.toLowerCase().includes(searchTerm) || ar.genres.some(g => g.toLowerCase().includes(searchTerm))),
+            tracks: combinedTracks.filter(t => {
+                const matchesQuery = t.title.toLowerCase().includes(searchTerm) ||
+                    t.artist.toLowerCase().includes(searchTerm) ||
+                    (t.lyrics && (typeof t.lyrics === 'string' ? t.lyrics : t.lyrics.text || '').toLowerCase().includes(searchTerm));
+                if (!matchesQuery)
+                    return false;
+                // Source Filter
+                if (sourceFilter === 'standard' && t.isGenerated)
+                    return false;
+                if (sourceFilter === 'ai' && !t.isGenerated)
+                    return false;
+                // BPM Filter
+                if (bpmFilter === 'slow' && (t.bpm === undefined || t.bpm >= 90))
+                    return false;
+                if (bpmFilter === 'medium' && (t.bpm === undefined || t.bpm < 90 || t.bpm > 120))
+                    return false;
+                if (bpmFilter === 'fast' && (t.bpm === undefined || t.bpm <= 120))
+                    return false;
+                // Key Signature Filter
+                if (keyFilter !== 'all' && t.keySignature !== keyFilter)
+                    return false;
+                return true;
+            }),
+            albums: combinedAlbums.filter(al => al.title.toLowerCase().includes(searchTerm) || al.artistName.toLowerCase().includes(searchTerm)),
+            artists: combinedArtists.filter(ar => ar.name.toLowerCase().includes(searchTerm) || ar.genres.some(g => g.toLowerCase().includes(searchTerm))),
             playlists: playlists.filter(pl => pl.name.toLowerCase().includes(searchTerm))
         };
-    }, [debouncedQuery, tracks, albums, artists, playlists]);
+    }, [debouncedQuery, combinedTracks, combinedAlbums, combinedArtists, playlists, sourceFilter, bpmFilter, keyFilter]);
     // Compute Top Result (first match of any type)
     const topResult = useMemo(() => {
         if (!debouncedQuery.trim())
@@ -163,7 +201,7 @@ export function Search() {
     ];
     return React.createElement('div', { className: 'flex flex-col gap-8 w-full mx-auto mt-4 pb-32 font-sans' }, 
     // Large Search input with Arrow key listener
-    React.createElement('div', { className: 'flex flex-col gap-ch-4' }, React.createElement('div', { className: 'relative w-full' }, React.createElement(SearchIcon, {
+    React.createElement('div', { className: 'flex flex-col gap-ch-4' }, React.createElement('div', { className: 'flex items-center gap-3 w-full' }, React.createElement('div', { className: 'relative flex-1' }, React.createElement(SearchIcon, {
         className: 'absolute left-ch-6 top-1/2 -translate-y-1/2 w-ch-5 h-ch-5 text-glorify-text-muted',
     }), React.createElement('input', {
         ref: searchInputRef,
@@ -178,7 +216,53 @@ export function Search() {
         React.createElement('button', {
             onClick: () => setQuery(''),
             className: 'absolute right-ch-4 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-glorify-bg-secondary text-glorify-text-muted hover:text-glorify-text-primary cursor-pointer outline-none focus-ring',
-        }, React.createElement(X, { className: 'w-ch-4.5 h-ch-4.5' }))), 
+        }, React.createElement(X, { className: 'w-ch-4.5 h-ch-4.5' }))), React.createElement('button', {
+        onClick: () => setShowFilters(!showFilters),
+        className: `px-6 h-14 rounded-full border text-xs font-semibold flex items-center gap-2 shadow-sm focus-ring cursor-pointer transition-all duration-300 ${showFilters || sourceFilter !== 'all' || bpmFilter !== 'all' || keyFilter !== 'all'
+            ? 'bg-glorify-accent border-glorify-accent text-glorify-carbon-950 font-bold'
+            : 'bg-glorify-bg-surface/50 border-glorify-border-primary/10 text-glorify-text-primary hover:bg-glorify-bg-secondary'}`
+    }, React.createElement(SlidersHorizontal, { className: 'w-4 h-4' }), 'Filters')), 
+    // Collapsible Filters Panel
+    showFilters &&
+        React.createElement('div', { className: 'flex flex-wrap gap-6 p-5 bg-glorify-bg-surface/50 border border-glorify-border-primary/10 rounded-[22px] text-left shadow-sm font-sans animate-fade-in' }, 
+        // Source filter
+        React.createElement('div', { className: 'flex flex-col gap-1.5' }, React.createElement('span', { className: 'text-[10px] font-bold text-glorify-text-secondary tracking-widest uppercase pl-1' }, 'Source'), React.createElement('div', { className: 'flex items-center bg-glorify-bg-secondary/60 border border-glorify-border-primary/5 p-1 rounded-full' }, [
+            { id: 'all', label: 'All' },
+            { id: 'standard', label: 'Standard' },
+            { id: 'ai', label: 'AI Generated' },
+        ].map(opt => React.createElement('button', {
+            key: opt.id,
+            onClick: () => setSourceFilter(opt.id),
+            className: `px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer outline-none ${sourceFilter === opt.id
+                ? 'bg-glorify-bg-surface text-glorify-text-primary font-bold shadow-sm'
+                : 'text-glorify-text-muted hover:text-glorify-text-primary'}`
+        }, opt.label)))), 
+        // BPM filter
+        React.createElement('div', { className: 'flex flex-col gap-1.5' }, React.createElement('span', { className: 'text-[10px] font-bold text-glorify-text-secondary tracking-widest uppercase pl-1' }, 'Tempo (BPM)'), React.createElement('div', { className: 'flex items-center bg-glorify-bg-secondary/60 border border-glorify-border-primary/5 p-1 rounded-full' }, [
+            { id: 'all', label: 'Any BPM' },
+            { id: 'slow', label: 'Slow (<90)' },
+            { id: 'medium', label: 'Medium (90-120)' },
+            { id: 'fast', label: 'Fast (>120)' },
+        ].map(opt => React.createElement('button', {
+            key: opt.id,
+            onClick: () => setBpmFilter(opt.id),
+            className: `px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer outline-none ${bpmFilter === opt.id
+                ? 'bg-glorify-bg-surface text-glorify-text-primary font-bold shadow-sm'
+                : 'text-glorify-text-muted hover:text-glorify-text-primary'}`
+        }, opt.label)))), 
+        // Key Signature filter dropdown
+        React.createElement('div', { className: 'flex flex-col gap-1.5 min-w-[140px]' }, React.createElement('span', { className: 'text-[10px] font-bold text-glorify-text-secondary tracking-widest uppercase pl-1' }, 'Key Signature'), React.createElement('select', {
+            value: keyFilter,
+            onChange: (e) => setKeyFilter(e.target.value),
+            className: 'px-ch-4 py-2 bg-glorify-bg-secondary/60 border border-glorify-border-primary/5 rounded-full text-xs text-glorify-text-primary outline-none focus:border-glorify-accent cursor-pointer font-semibold shadow-sm transition-all'
+        }, [
+            { value: 'all', label: 'Any Key' },
+            { value: 'A Min', label: 'A Minor' },
+            { value: 'C Maj', label: 'C Major' },
+            { value: 'D Maj', label: 'D Major' },
+            { value: 'F# Min', label: 'F# Minor' },
+            { value: 'G Maj', label: 'G Major' },
+        ].map(opt => React.createElement('option', { key: opt.value, value: opt.value }, opt.label))))), 
     // Category Navigation Tabs
     query.trim() &&
         React.createElement('div', { className: 'flex items-center gap-ch-2 overflow-x-auto scrollbar-none pb-1' }, categoriesList.map((cat) => React.createElement('button', {
@@ -235,13 +319,22 @@ export function Search() {
         // Filtered categories listings
         flatResultsList.length === 0
             ? React.createElement(NoSearchResults, { query })
-            : React.createElement('div', { className: 'flex flex-col gap-3 bg-glorify-bg-surface/20 border border-glorify-border-primary/10 p-2 rounded-[24px]' }, flatResultsList.map((item, idx) => React.createElement('div', {
-                key: item.id + '-' + item.type + '-' + idx,
-                onClick: () => triggerAction(item),
-                className: `flex items-center justify-between p-3.5 rounded-[16px] transition-all duration-200 cursor-pointer border border-transparent ${focusedIndex === idx
-                    ? 'bg-glorify-bg-secondary border-glorify-accent/20 text-glorify-text-primary shadow-sm'
-                    : 'hover:bg-glorify-bg-secondary/40 text-glorify-text-secondary hover:text-glorify-text-primary'}`
-            }, React.createElement('div', { className: 'flex items-center gap-4 min-w-0' }, React.createElement('span', { className: 'text-[9px] font-mono tracking-widest text-glorify-accent bg-glorify-accent-glow px-2 py-0.5 rounded-sm flex-shrink-0 font-semibold' }, item.type === 'track' ? 'SONG' : item.type.toUpperCase()), React.createElement('div', { className: 'min-w-0' }, React.createElement('div', { className: 'text-sm font-semibold truncate' }, highlightText(item.title, query)), React.createElement('div', { className: 'text-xs text-glorify-text-muted truncate mt-0.5' }, highlightText(item.subtitle, query)))), React.createElement(ArrowRight, { className: 'w-ch-4.5 h-ch-4.5 text-glorify-text-muted opacity-40 flex-shrink-0' })))))
+            : (activeCategory === 'songs'
+                ? React.createElement('div', { className: 'flex flex-col bg-glorify-bg-surface/20 border border-glorify-border-primary/5 rounded-[28px] p-2 shadow-sm text-left' }, filteredResults.tracks.map((track, idx) => React.createElement(TrackCard, {
+                    key: track.id,
+                    track: track,
+                    index: idx,
+                    queueContext: filteredResults.tracks,
+                    onGoToAlbum: (albumId) => navigate(`/album/${albumId}`),
+                    onGoToArtist: (artistId) => navigate(`/artist/${artistId}`),
+                })))
+                : React.createElement('div', { className: 'flex flex-col gap-3 bg-glorify-bg-surface/20 border border-glorify-border-primary/10 p-2 rounded-[24px]' }, flatResultsList.map((item, idx) => React.createElement('div', {
+                    key: item.id + '-' + item.type + '-' + idx,
+                    onClick: () => triggerAction(item),
+                    className: `flex items-center justify-between p-3.5 rounded-[16px] transition-all duration-200 cursor-pointer border border-transparent ${focusedIndex === idx
+                        ? 'bg-glorify-bg-secondary border-glorify-accent/20 text-glorify-text-primary shadow-sm'
+                        : 'hover:bg-glorify-bg-secondary/40 text-glorify-text-secondary hover:text-glorify-text-primary'}`
+                }, React.createElement('div', { className: 'flex items-center gap-4 min-w-0' }, React.createElement('span', { className: 'text-[9px] font-mono tracking-widest text-glorify-accent bg-glorify-accent-glow px-2 py-0.5 rounded-sm flex-shrink-0 font-semibold' }, item.type === 'track' ? 'SONG' : item.type.toUpperCase()), React.createElement('div', { className: 'min-w-0' }, React.createElement('div', { className: 'text-sm font-semibold truncate' }, highlightText(item.title, query)), React.createElement('div', { className: 'text-xs text-glorify-text-muted truncate mt-0.5' }, highlightText(item.subtitle, query)))), React.createElement(ArrowRight, { className: 'w-ch-4.5 h-ch-4.5 text-glorify-text-muted opacity-40 flex-shrink-0' }))))))
         : React.createElement(motion.div, {
             key: 'sections',
             initial: { opacity: 0 },

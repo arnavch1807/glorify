@@ -5,6 +5,16 @@ export interface User {
   theme: 'sand' | 'carbon';
 }
 
+export interface TrackLyrics {
+  type: 'plain' | 'synced';
+  text?: string;
+  lines?: {
+    time: number; // in milliseconds
+    text: string;
+  }[];
+  source?: 'embedded' | 'local' | 'cloud' | 'manual';
+}
+
 export interface Track {
   id: string;
   title: string;
@@ -14,11 +24,22 @@ export interface Track {
   duration: number;
   coverImage?: string;
   audioUrl: string;
-  lyrics?: string;
+  lyrics?: string | TrackLyrics;
   isGenerated: boolean;
   prompt?: string;
   createdBy?: string;
   createdAt?: string;
+  source?: 'local' | 'catalog';
+  filePath?: string;
+  fileHandle?: FileSystemFileHandle;
+  albumArtist?: string;
+  year?: number;
+  trackNumber?: number;
+  discNumber?: number;
+  composer?: string;
+  comment?: string;
+  bpm?: number;
+  keySignature?: string;
 }
 
 export interface Playlist {
@@ -47,6 +68,12 @@ export interface Artist {
   avatarUrl?: string;
   bio?: string;
   genres: string[];
+  tracks?: string[];
+  albums?: string[];
+  followersCount?: number;
+  isVerified?: boolean;
+  singles?: string[];
+  appearsOn?: string[];
 }
 
 export interface Album {
@@ -54,10 +81,17 @@ export interface Album {
   title: string;
   artistId: string;
   artistName: string;
+  artist?: string;
+  albumArtist?: string;
   coverUrl?: string;
+  artwork?: string;
   releaseYear: number;
+  year?: number;
   tracks: string[]; // Track IDs
   genre: string;
+  totalTracks?: number;
+  totalDuration?: number;
+  discCount?: number;
 }
 
 export interface PlaybackSource {
@@ -82,6 +116,14 @@ export interface TrackMetadata {
 
 export type Genre = string;
 
+export interface GenreCollection {
+  id: string;
+  name: string;
+  tracks: string[];
+  albums: string[];
+  artists: string[];
+}
+
 export interface QueueItem {
   id: string;
   track: Track;
@@ -97,4 +139,14 @@ export interface Artwork {
   url: string;
   width: number;
   height: number;
+}
+
+export interface SmartCollection {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  artwork?: string;
+  tracks: string[]; // Track IDs
+  count: number;
 }

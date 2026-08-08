@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Settings as SetIcon, Key, Shield, Download, Sliders, Moon, Volume2, 
-  Trash2, Bell, Keyboard, Sparkles, Paintbrush, Play 
+  Trash2, Bell, Keyboard, Sparkles, Paintbrush, Play, LogOut 
 } from 'lucide-react';
 import { Button, Input, useTheme } from '@chotify/ui';
 import { usePlayerStore, AudioQualityType } from '../store/playerStore.js';
+import { useAuthStore } from '../store/authStore.js';
+import { CloudRepository } from '../repositories/cloudRepository.js';
 
 export function Settings() {
   const { theme, setTheme } = useTheme();
+  const { user, logout } = useAuthStore();
   
   const {
     crossfadeDuration,
@@ -28,37 +31,75 @@ export function Settings() {
 
   const [sunoKey, setSunoKey] = useState('');
   const [udioSecret, setUdioSecret] = useState('');
+  const [sunoStatus, setSunoStatus] = useState<'not_configured' | 'valid' | 'invalid'>('not_configured');
+  const [udioStatus, setUdioStatus] = useState<'not_configured' | 'valid' | 'invalid'>('not_configured');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await CloudRepository.getAPIKeysStatus();
+        if (res.hasSuno) {
+          setSunoKey('••••••••••••••••');
+          setSunoStatus(res.isValidSuno ? 'valid' : 'invalid');
+        }
+        if (res.hasUdio) {
+          setUdioSecret('••••••••••••••••');
+          setUdioStatus(res.isValidUdio ? 'valid' : 'invalid');
+        }
+      } catch (err) {
+        console.error('Failed to load API keys status:', err);
+      }
+    };
+    fetchStatus();
+  }, []);
   
   // Simulated storage state
   const [cacheSize, setCacheSize] = useState('248.6 MB');
   const [allowNotifications, setAllowNotifications] = useState(true);
   const [experimentalLabs, setExperimentalLabs] = useState(false);
 
-  const handleExportData = () => {
-    const data = {
-      username: 'user_dev',
-      email: 'dev@glorify.com',
-      theme,
-      downloadedCount: downloadedTrackIds.length,
-      playbackSettings: {
-        crossfadeDuration,
-        isGapless,
-        isNormalized,
-        audioQuality,
-      }
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'glorify-profile-export.json';
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExportData = async () => {
+    try {
+      const data = await CloudRepository.exportProfileData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `glorify-profile-export-${user?.username || 'user'}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Failed to export profile data:', err);
+      alert('Failed to export your account data. Please try again.');
+    }
   };
 
   const handleClearCache = () => {
     setCacheSize('0.0 MB');
     alert('Cache cleared successfully!');
+  };
+
+  const handleSaveCredentials = async () => {
+    try {
+      setIsSaving(true);
+      const sunoToSend = sunoKey === '••••••••••••••••' ? undefined : sunoKey;
+      const udioToSend = udioSecret === '••••••••••••••••' ? undefined : udioSecret;
+
+      const res = await CloudRepository.saveAPIKeys(sunoToSend, udioToSend);
+      setSunoStatus(res.hasSuno ? (res.isValidSuno ? 'valid' : 'invalid') : 'not_configured');
+      setUdioStatus(res.hasUdio ? (res.isValidUdio ? 'valid' : 'invalid') : 'not_configured');
+
+      if (res.hasSuno) setSunoKey('••••••••••••••••');
+      if (res.hasUdio) setUdioSecret('••••••••••••••••');
+
+      alert('API credentials updated successfully!');
+    } catch (err: any) {
+      console.error(err);
+      alert('Failed to save API credentials. Check key formats.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const keyboardShortcuts = [
@@ -308,20 +349,42 @@ export function Settings() {
           React.createElement(Key, { className: 'w-ch-4.5 h-ch-4.5 text-glorify-accent' }),
           React.createElement('span', { className: 'text-sm font-semibold text-glorify-text-primary' }, 'API Credentials')
         ),
-        React.createElement(Input, {
-          label: 'Suno AI Studio Secret key',
-          type: 'password',
-          value: sunoKey,
-          onChange: (e) => setSunoKey(e.target.value),
-          placeholder: 'Enter Suno API key secret...',
-        }),
-        React.createElement(Input, {
-          label: 'Udio Studio Secret key',
-          type: 'password',
-          value: udioSecret,
-          onChange: (e) => setUdioSecret(e.target.value),
-          placeholder: 'Enter Udio client secret...',
-        }),
+        React.createElement(
+          'div',
+          { className: 'flex flex-col gap-1.5' },
+          React.createElement(
+            'div',
+            { className: 'flex items-center justify-between' },
+            React.createElement('label', { className: 'text-xs text-glorify-text-secondary font-medium' }, 'Suno AI Studio Secret key'),
+            sunoStatus === 'valid' && React.createElement('span', { className: 'px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' }, '✓ Active'),
+            sunoStatus === 'invalid' && React.createElement('span', { className: 'px-2 py-0.5 rounded-full text-[9px] font-bold bg-red-500/10 text-red-400 border border-red-500/20' }, '✗ Invalid Format'),
+            sunoStatus === 'not_configured' && React.createElement('span', { className: 'px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/5 text-glorify-text-muted border border-white/10' }, 'Not Configured')
+          ),
+          React.createElement(Input, {
+            type: 'password',
+            value: sunoKey,
+            onChange: (e: any) => setSunoKey(e.target.value),
+            placeholder: 'Enter Suno API key (starts with sk-suno-)...',
+          })
+        ),
+        React.createElement(
+          'div',
+          { className: 'flex flex-col gap-1.5' },
+          React.createElement(
+            'div',
+            { className: 'flex items-center justify-between' },
+            React.createElement('label', { className: 'text-xs text-glorify-text-secondary font-medium' }, 'Udio Studio Secret key'),
+            udioStatus === 'valid' && React.createElement('span', { className: 'px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' }, '✓ Active'),
+            udioStatus === 'invalid' && React.createElement('span', { className: 'px-2 py-0.5 rounded-full text-[9px] font-bold bg-red-500/10 text-red-400 border border-red-500/20' }, '✗ Invalid Format'),
+            udioStatus === 'not_configured' && React.createElement('span', { className: 'px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/5 text-glorify-text-muted border border-white/10' }, 'Not Configured')
+          ),
+          React.createElement(Input, {
+            type: 'password',
+            value: udioSecret,
+            onChange: (e: any) => setUdioSecret(e.target.value),
+            placeholder: 'Enter Udio client secret (starts with sk-udio-)...',
+          })
+        ),
         React.createElement(
           'div',
           { className: 'flex justify-end pt-ch-2' },
@@ -329,10 +392,11 @@ export function Settings() {
             Button,
             {
               variant: 'secondary',
-              onClick: () => alert('API credentials saved securely in local container!'),
+              onClick: handleSaveCredentials,
+              disabled: isSaving,
               className: 'rounded-full text-xs font-semibold px-ch-4 py-2 hover:bg-glorify-bg-secondary'
             },
-            'Save Credentials'
+            isSaving ? 'Saving...' : 'Save Credentials'
           )
         )
       ),
@@ -449,6 +513,50 @@ export function Settings() {
                 sc.key
               )
             )
+          )
+        )
+      ),
+
+      // 10. Account Settings (Sign Out)
+      React.createElement(
+        'div',
+        { className: 'p-ch-6 rounded-[22px] bg-glorify-bg-surface/40 border border-glorify-border-primary/10 flex flex-col gap-ch-4 shadow-sm lg:col-span-2' },
+        React.createElement(
+          'div',
+          { className: 'flex items-center gap-ch-2 pb-ch-2 border-b border-glorify-border-primary/5' },
+          React.createElement(LogOut, { className: 'w-ch-4.5 h-ch-4.5 text-glorify-error' }),
+          React.createElement('span', { className: 'text-sm font-semibold text-glorify-text-primary' }, 'Account Settings')
+        ),
+        React.createElement(
+          'div',
+          { className: 'flex flex-col md:flex-row md:items-center justify-between gap-4 py-2' },
+          React.createElement(
+            'div',
+            { className: 'flex flex-col gap-1' },
+            React.createElement(
+              'span',
+              { className: 'text-sm font-bold text-glorify-text-primary' },
+              user?.displayName || user?.username || 'Premium Listener'
+            ),
+            React.createElement(
+              'span',
+              { className: 'text-xs text-glorify-text-secondary' },
+              user?.email || 'authenticated-user@glorify.com'
+            ),
+            React.createElement(
+              'span',
+              { className: 'text-[10px] text-glorify-accent font-bold uppercase tracking-wider mt-1' },
+              `${user?.subscription || 'free'} plan`
+            )
+          ),
+          React.createElement(
+            'button',
+            {
+              onClick: () => logout(),
+              className: 'px-5 h-10 rounded-full bg-glorify-error/10 hover:bg-glorify-error/20 text-glorify-error text-xs font-bold transition-all outline-none focus-ring cursor-pointer flex items-center justify-center gap-1.5'
+            },
+            React.createElement(LogOut, { className: 'w-3.5 h-3.5' }),
+            'Sign Out'
           )
         )
       )
